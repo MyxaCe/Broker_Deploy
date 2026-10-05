@@ -1,0 +1,146 @@
+# Локальный контур биржи — надстройка над deploy/vps/docker-compose.yml.
+#
+# Базовый компоуз писался под VPS и остаётся источником истины: состав сервисов,
+# зависимости, политики перезапуска, переменные — там. Здесь только то, что
+# отличает эту машину от сервера, и у каждого отличия есть причина.
+#
+# Запуск (обязательно --project-directory, иначе относительные пути в базовом
+# файле разрешатся от его собственной папки и уедут):
+#
+#   cd deploy/local
+#   docker compose -p broker-local \
+#     --project-directory . \
+#     -f ../../site-platform/deploy/vps/docker-compose.yml \
+#     -f docker-compose.local.yml \
+#     up -d --build
+#
+# ОТЛИЧИЯ ОТ VPS И ПОЧЕМУ (полный список — в README.md рядом):
+#  1. Контексты сборки. На сервере рядом лежали Sait_Platform / Broker_CMS /
+#     Broker_MDS. Здесь папки называются site-platform / cms-legacy / mds.
+#  2. Broker_CMS — это cms-legacy, а НЕ cms. В cms лежит CMS v2: у неё нет
+#     Dockerfile, другая база (broker_cms_v2) и другие зависимости. Базовый
+#     компоуз описывает legacy, и подменять его на v2 — не работа деплоя.
+#  3. Порты 3100-3103 вместо 3000-3003. На хосте уже крутятся dev-серверы
+#     соседей, и они дрейфуют: за один замер next ушёл с 3000 на 3001, потом
+#     появился второй на 3005. Занимать спорный диапазон — значит однажды
+#     поднять контур, который слушает не там, где записано.
+#  4. Шина добавлена сюда. На сервере она чужая (/opt/platform-bus), локально
+#     её нет — поднимаем свою.
+#  5. GlitchTip не поднимается (OPS-09 отложена), DSN пустые.
+#  6. cms-migrate: отказ сида не глушится (OPS-11). Подробности у сервиса.
+
+name: broker-local
+
+services:
+  # --- 1. Контексты сборки: имена папок на этой машине -------------------
+  site-db:
+    volumes:
+      - site-db-data:/var/lib/postgresql/data
+      - ../../site-platform/db/init:/docker-entrypoint-initdb.d:ro
+
+  mds:
+    build:
+      context: ../../mds
+    # !override — иначе compose ДОБАВИТ порт к базовому, и контур займёт ещё
+    # и 3003, спорный. Проверено `config`: без тега получалось '3003,3103'.
+    ports: !override
+      - '3103:3003'          # отличие 3
+
+  cms-migrate:
+    build:
+      context: ../../cms-legacy   # отличие 2
+      target: build
+    # отличие 6: сид не глушим. В базовом компоузе стоит
+    # `NODE_ENV=production DEFAULT_SITE=apex-ru pnpm seed || echo 'seed skipped'`.
+    # Отказ сида превращался в код возврата 0, cms стартовала по
+    # service_completed_successfully, база оставалась пустой, а выдача отвечала
+    # 404 unknown_site — неотличимо от «CMS не работает» (OPS-11, B-OPS-001).
+    # Здесь отказ виден и валит подъём контура: пустая CMS хуже не поднявшейся.
+    command:
+      - sh
+      - -c
+      - pnpm payload migrate && NODE_ENV=production DEFAULT_SITE=apex-ru pnpm seed
+
+  cms:
+    build:
+      context: ../../cms-legacy   # отличие 2
+    ports: !override
+      - '3101:3001'          # отличие 3
+    environment:
+      CMS_PUBLIC_URL: http://${VPS_HOST}:3101
+      SITE_URL: http://${VPS_HOST}:3100
+
+  web:
+    build:
+      context: ../../site-platform
+      dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_WS_URL: http://${VPS_HOST}:3103
+        NEXT_PUBLIC_CABINET_URL: http://${VPS_HOST}:3102
+        FRAME_ANCESTORS: "'self' http://${VPS_HOST}:3101"
+    ports: !override
+      - '3100:3000'          # отличие 3
+    environment:
+      NEXT_PUBLIC_WS_URL: http://${VPS_HOST}:3103
+      NEXT_PUBLIC_SITE_URL: http://${VPS_HOST}:3100
+
+  cabinet:
+    build:
+      context: ../../site-platform
+      dockerfile: docker/cabinet.Dockerfile
+      args:
+        NEXT_PUBLIC_WS_URL: http://${VPS_HOST}:3103
+    ports: !override
+      - '3102:3002'          # отличие 3
+    environment:
+      NEXT_PUBLIC_WS_URL: http://${VPS_HOST}:3103
+      NEXT_PUBLIC_SITE_URL: http://${VPS_HOST}:3100
+
+  relay:
+    build:
+      context: ../../site-platform
+      dockerfile: docker/relay.Dockerfile
+    depends_on:
+      site-db:
+        condition: service_healthy
+      bus:
+        condition: service_healthy
+
+  consumer:
+    build:
+      context: ../../site-platform
+      dockerfile: docker/consumer.Dockerfile
+    # BUS-01: свой кредл, НЕ site-web. site-web publish-only и на queue.declare
+    # получает 403 — это воспроизведено, см. docs/Шина.md.
+    environment:
+      BUS_URL: ${CABINET_BUS_URL}
+    depends_on:
+      site-db:
+        condition: service_healthy
+      bus:
+        condition: service_healthy
+
+  # --- 4. Шина: на сервере чужая, здесь своя -----------------------------
+  bus:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: site-web
+      RABBITMQ_DEFAULT_PASS: ${BUS_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: platform
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - bus-data:/var/lib/rabbitmq
+    healthcheck:
+      # Не 'rabbitmq-diagnostics ping' — он отвечает «жив», пока жив процесс
+      # Erlang, даже если брокер не принимает соединения. check_running
+      # проверяет, что приложение rabbit реально запущено.
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'check_running']
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  bus-data:

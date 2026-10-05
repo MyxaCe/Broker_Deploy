@@ -1,0 +1,17 @@
+# Секреты — никогда в историю
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+authorized_keys
+
+# Артефакты
+node_modules/
+.next/
+dist/
+build/
+target/
+coverage/
+.turbo/
+*.log
