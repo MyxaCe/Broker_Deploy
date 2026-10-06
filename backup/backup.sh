@@ -25,7 +25,11 @@ STAMP="$(date +%Y-%m-%d_%H%M%S)"
 DEST="$DEST_BASE/$STAMP"
 LOG="$DEST/backup.log"
 
-REPOS="site-platform cms cms-legacy mds terminal"
+# `deploy` добавлен 06.10: зона стала git-репозиторием 05.10, а ремоута у неё
+# нет вовсе (TD-OPS-005) — её история существует ровно в одном месте, и бандл
+# для неё нужнее, чем для остальных пяти. В PLAIN она остаётся тоже: архив
+# берёт неотслеживаемое, бандл — историю.
+REPOS="site-platform cms cms-legacy mds terminal deploy"
 PLAIN="deploy _brain _reference"
 EXCLUDES="--exclude=node_modules --exclude=.next --exclude=dist --exclude=target --exclude=.turbo --exclude=coverage"
 
