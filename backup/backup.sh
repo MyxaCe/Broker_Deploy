@@ -21,7 +21,16 @@ set -euo pipefail
 ROOT="/c/Users/Billie/Desktop/Broker"
 # Назначение параметризовано ради одного: проверку охвата надо уметь гонять,
 # не засоряя рабочий каталог бэкапов. Умолчание прежнее.
+#
+# Путь обязан быть POSIX-овым (`/d/...`, `/c/...`), а не `D:/...`: `tar`
+# принимает двоеточие в имени за «хост:путь» и уходит искать удалённую машину.
+# Проверять это явно, а не комментарием: иначе прогон падает на пятом шаге с
+# «ПРОВАЛ: архив deploy» и причина не названа.
 DEST_BASE="${DEST_BASE:-/d/Broker-backups}"
+case "$DEST_BASE" in
+  *:*) echo "ПРОВАЛ: DEST_BASE='$DEST_BASE' содержит двоеточие — tar примет его за имя хоста." >&2
+       echo "        Нужен POSIX-путь, например /d/Broker-backups" >&2; exit 1;;
+esac
 KEEP=7                       # сколько последних прогонов держать
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 DEST="$DEST_BASE/$STAMP"
@@ -93,9 +102,23 @@ for r in $REPOS; do
     || fail "bundle $r"
   ( cd "$ROOT/$r" && git bundle verify "$DEST/repos/$r.bundle" ) >>"$LOG" 2>&1 \
     || fail "bundle $r не проходит verify"
-  ( cd "$ROOT/$r" && git branch --format='%(refname:short) %(upstream:short)' ) \
-    > "$DEST/repos/$r.branches.txt" 2>/dev/null || true
-  say "  репозиторий $r: $(stat -c%s "$DEST/repos/$r.bundle") байт, веток $(wc -l < "$DEST/repos/$r.branches.txt")"
+  # Третье поле — ЧИСЛО КОММИТОВ, не достижимых ни с одного remote.
+  #
+  # Раньше «существует только здесь» определялось отсутствием upstream, и это
+  # проверка не того свойства: ветка задачи, слитая в `main` через --no-ff и
+  # запушенная вместе с ним, upstream не имеет, а все её коммиты на remote уже
+  # лежат. Измерено 19.10: веток без upstream — 14, коммитов, которых нет ни на
+  # одном remote, — НОЛЬ. Прежний признак завышал риск, а проверка
+  # восстановления печатала про такие ветки «существовала только на этой
+  # машине» — утверждение сильнее того, что она знала.
+  ( cd "$ROOT/$r" && git for-each-ref --format='%(refname:short)' refs/heads \
+      | while read -r b; do
+          printf '%s %s %s\n' "$b" \
+            "$(git rev-parse --abbrev-ref "$b@{upstream}" 2>/dev/null || echo -)" \
+            "$(git rev-list --count "$b" --not --remotes 2>/dev/null || echo '?')"
+        done ) > "$DEST/repos/$r.branches.txt" 2>/dev/null || true
+  only=$(awk '$3 ~ /^[0-9]+$/ && $3 > 0' "$DEST/repos/$r.branches.txt" | wc -l | tr -d ' ')
+  say "  репозиторий $r: $(stat -c%s "$DEST/repos/$r.bundle") байт, веток $(wc -l < "$DEST/repos/$r.branches.txt"), из них только здесь: $only"
 done
 
 # --- 4. Незакоммиченная работа ---------------------------------------------
