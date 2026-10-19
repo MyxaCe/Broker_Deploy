@@ -19,7 +19,9 @@
 set -euo pipefail
 
 ROOT="/c/Users/Billie/Desktop/Broker"
-DEST_BASE="/d/Broker-backups"
+# Назначение параметризовано ради одного: проверку охвата надо уметь гонять,
+# не засоряя рабочий каталог бэкапов. Умолчание прежнее.
+DEST_BASE="${DEST_BASE:-/d/Broker-backups}"
 KEEP=7                       # сколько последних прогонов держать
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 DEST="$DEST_BASE/$STAMP"
@@ -33,8 +35,21 @@ REPOS="site-platform cms cms-legacy mds terminal deploy"
 PLAIN="deploy _brain _reference"
 EXCLUDES="--exclude=node_modules --exclude=.next --exclude=dist --exclude=target --exclude=.turbo --exclude=coverage"
 
+# Тома контура, которые НЕ резервируются архивом, и почему. Список нужен не
+# для красоты: без него проверка охвата ниже назвала бы их пропущенными, а с
+# ним каждое исключение имеет записанную причину — иначе через месяц его
+# «дозакроют» или, наоборот, молча расширят.
+#   site-db-data, cms-db-data — резервируются ДАМПОМ (п.1), копировать каталог
+#                               работающей Postgres нельзя
+#   bus-data                  — провижининг шины целиком лежит кодом в
+#                               local/bus-setup.sh; том восстанавливается
+#                               прогоном скрипта, а не распаковкой архива
+VOL_COVERED_OTHERWISE="broker-local_site-db-data broker-local_cms-db-data broker-local_bus-data"
+
+SKIPPED=0        # хоть один пункт не выполнился → это НЕ полный бэкап
 fail() { echo "ПРОВАЛ: $*" | tee -a "$LOG" >&2; exit 1; }
 say()  { echo "$*" | tee -a "$LOG"; }
+skip() { SKIPPED=$((SKIPPED+1)); say "  ПРОПУСК: $*"; }
 
 mkdir -p "$DEST" || { echo "ПРОВАЛ: не создать $DEST" >&2; exit 1; }
 say "=== бэкап $STAMP ==="
@@ -45,7 +60,7 @@ mkdir -p "$DEST/db"
 dump_db() {
   local container="$1" user="$2" db="$3"
   docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null | grep -q true \
-    || { say "  ПРОПУСК $db: контейнер $container не запущен"; return 0; }
+    || { skip "база $db — контейнер $container не запущен, дампа в бэкапе НЕТ"; return 0; }
   docker exec "$container" pg_dump -U "$user" -d "$db" -Fc \
     > "$DEST/db/$db.dump" 2>>"$LOG" || fail "pg_dump $db"
   local sz; sz=$(stat -c%s "$DEST/db/$db.dump")
@@ -59,7 +74,7 @@ dump_db broker-local-cms-db-1  cms    broker_cms
 mkdir -p "$DEST/volumes"
 dump_vol() {
   local vol="$1"
-  docker volume inspect "$vol" >/dev/null 2>&1 || { say "  ПРОПУСК тома $vol: нет"; return 0; }
+  docker volume inspect "$vol" >/dev/null 2>&1 || { skip "том $vol — на машине его нет"; return 0; }
   MSYS_NO_PATHCONV=1 docker run --rm -v "$vol":/src:ro -v "$DEST/volumes":/out alpine \
     tar czf "/out/$vol.tar.gz" -C /src . 2>>"$LOG" || fail "том $vol"
   say "  том $vol: $(stat -c%s "$DEST/volumes/$vol.tar.gz") байт"
@@ -73,7 +88,7 @@ dump_vol broker-local_cabinet-uploads
 # site-platform/web-01-local-run и mds/mds-волна-1 существуют ТОЛЬКО здесь.
 mkdir -p "$DEST/repos"
 for r in $REPOS; do
-  [ -d "$ROOT/$r/.git" ] || { say "  ПРОПУСК $r: не git"; continue; }
+  [ -d "$ROOT/$r/.git" ] || { skip "репозиторий $r — в списке есть, на диске git нет"; continue; }
   ( cd "$ROOT/$r" && git bundle create "$DEST/repos/$r.bundle" --all ) >>"$LOG" 2>&1 \
     || fail "bundle $r"
   ( cd "$ROOT/$r" && git bundle verify "$DEST/repos/$r.bundle" ) >>"$LOG" 2>&1 \
@@ -100,11 +115,56 @@ done
 # Единственная копия правил, контрактов, решений и задач платформы.
 mkdir -p "$DEST/plain"
 for p in $PLAIN; do
-  [ -d "$ROOT/$p" ] || continue
+  [ -d "$ROOT/$p" ] || { skip "папка $p — в списке есть, на диске нет"; continue; }
   tar czf "$DEST/plain/$p.tar.gz" $EXCLUDES --exclude=.env --exclude='.env.*' \
       -C "$ROOT" "$p" 2>>"$LOG" || fail "архив $p"
   say "  папка $p: $(stat -c%s "$DEST/plain/$p.tar.gz") байт (секреты .env исключены)"
 done
+
+# --- 5б. ОХВАТ: что на машине есть, но в бэкап не попало --------------------
+#
+# QA-01 (19.10). У соседей конфигурация прогона тестов не включала каталог
+# ручек вовсе — любая проверка рядом с ручкой молча не исполнялась бы. Тот же
+# вопрос здесь, и он не «есть ли бэкап», а «входит ли в него то, что
+# появилось». REPOS, PLAIN и списки томов ведутся РУКАМИ. Седьмой репозиторий
+# или новый том не дают ни ошибки, ни пустого файла: бэкап снимается
+# целиком зелёным, проверка восстановления обходит ровно то, что в нём лежит,
+# и обе стороны согласны друг с другом, потому что смотрят в одно место.
+#
+# Поэтому перечень выводится из ИСТОЧНИКА — из того, что лежит на диске и в
+# Docker, — и сверяется со списками. Охват объявляется числом.
+say ""
+say "--- охват: списки против того, что есть на машине ---"
+disk_git=""; disk_plain=""
+for d in "$ROOT"/*/; do
+  n="$(basename "$d")"
+  case "$n" in node_modules|.*) continue;; esac
+  if [ -d "$d/.git" ]; then disk_git="$disk_git $n"; else disk_plain="$disk_plain $n"; fi
+done
+for n in $disk_git; do
+  printf '%s\n' $REPOS | grep -qx "$n" \
+    || { SKIPPED=$((SKIPPED+1)); say "  НЕ В БЭКАПЕ: репозиторий $n есть на диске, в REPOS его нет"; }
+done
+for n in $disk_plain; do
+  printf '%s\n' $PLAIN | grep -qx "$n" \
+    || { SKIPPED=$((SKIPPED+1)); say "  НЕ В БЭКАПЕ: папка без git $n есть на диске, в PLAIN её нет"; }
+done
+say "  репозиториев на диске $(printf '%s\n' $disk_git | sed '/^$/d' | wc -l | tr -d ' '), в списке $(printf '%s\n' $REPOS | wc -l | tr -d ' ')"
+say "  папок без git на диске $(printf '%s\n' $disk_plain | sed '/^$/d' | wc -l | tr -d ' '), в списке $(printf '%s\n' $PLAIN | wc -l | tr -d ' ')"
+
+vols="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '^broker-local_' || true)"
+if [ -z "$vols" ]; then
+  SKIPPED=$((SKIPPED+1)); say "  ОХВАТ ТОМОВ НЕ ПРОВЕРЕН: docker volume ls ничего не вернул"
+else
+  nv=0
+  for v in $vols; do
+    nv=$((nv+1))
+    [ -f "$DEST/volumes/$v.tar.gz" ] && continue
+    printf '%s\n' $VOL_COVERED_OTHERWISE | grep -qx "$v" && continue
+    SKIPPED=$((SKIPPED+1)); say "  НЕ В БЭКАПЕ: том $v — ни архива, ни записанной причины"
+  done
+  say "  томов контура $nv; архивами покрыто $(ls -1 "$DEST/volumes"/*.tar.gz 2>/dev/null | wc -l | tr -d ' '), иначе покрыто $(printf '%s\n' $VOL_COVERED_OTHERWISE | wc -l | tr -d ' ')"
+fi
 
 # --- 6. Манифест с контрольными суммами ------------------------------------
 ( cd "$DEST" && find . -type f ! -name manifest.sha256 ! -name backup.log \
@@ -112,10 +172,26 @@ done
 say "  файлов в бэкапе: $(wc -l < "$DEST/manifest.sha256")"
 
 # --- 7. Ротация ------------------------------------------------------------
-ls -1d "$DEST_BASE"/*/ 2>/dev/null | sort -r | tail -n +$((KEEP+1)) | while read -r old; do
-  say "  ротация: удаляю $old"
-  rm -rf "$old"
-done
+#
+# Ротация при неполном прогоне — худшее, что здесь может произойти: неполный
+# бэкап вытеснил бы полный, и потеря обнаружилась бы при восстановлении.
+# Поэтому ротация идёт ТОЛЬКО после прогона без пропусков.
+if [ "$SKIPPED" -gt 0 ]; then
+  say "  ротация ОТМЕНЕНА: прогон неполон ($SKIPPED пропуск(ов)) — старые бэкапы целы"
+else
+  ls -1d "$DEST_BASE"/*/ 2>/dev/null | sort -r | tail -n +$((KEEP+1)) | while read -r old; do
+    say "  ротация: удаляю $old"
+    rm -rf "$old"
+  done
+fi
 
+say ""
+# Непройденное — ПЕРВОЙ строкой резюме и до чисел: резюме читают вместо отчёта.
+if [ "$SKIPPED" -gt 0 ]; then
+  say "=== БЭКАП НЕПОЛОН: пропусков $SKIPPED (строки ПРОПУСК и НЕ В БЭКАПЕ выше) ==="
+  say "    Каталог $DEST оставлен: частичный бэкап лучше никакого, но полным не считается."
+  say "ВНИМАНИЕ: бэкап на этой же машине. От потери доступа к машине не спасает."
+  exit 1
+fi
 say "=== готово: $DEST ==="
 say "ВНИМАНИЕ: бэкап на этой же машине. От потери доступа к машине не спасает."

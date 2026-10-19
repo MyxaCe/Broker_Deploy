@@ -52,3 +52,32 @@ done
 
 echo
 echo "Образ старше кода → пересобрать и проверить СОДЕРЖИМЫМ ответа, а не статусом."
+
+# --- Охват: объявлен числом и выведен ИЗ ИСТОЧНИКА, а не из этого файла -----
+#
+# QA-01 (19.10). У соседей конфигурация прогона тестов не включала каталог
+# ручек вовсе: любая проверка рядом с ручкой молча не исполнялась бы. Тот же
+# вопрос к этой сверке — не «есть ли строка в MAP», а «входит ли сервис в
+# прогон». MAP ведётся руками; сервис, собираемый компоузом и забытый здесь,
+# не даёт ни ошибки, ни пустой строки — таблица выглядит полной.
+#
+# Поэтому список сервисов со сборкой берётся из самого компоуза. Это ровно
+# правило «перечень выводят из источника»: таблица выше отвечает за свежесть,
+# а эти строки — за то, что в ней никого не пропустили.
+COMPOSE_ARGS=(-p broker-local --project-directory "$(dirname "${BASH_SOURCE[0]}")"
+  -f "$ROOT/site-platform/deploy/vps/docker-compose.yml"
+  -f "$(dirname "${BASH_SOURCE[0]}")/docker-compose.local.yml")
+built="$(docker compose "${COMPOSE_ARGS[@]}" config 2>/dev/null \
+  | awk '/^  [a-z0-9_-]+:$/{svc=$1; sub(":","",svc)} /^    build:/{print svc}' | sort -u)"
+if [ -z "$built" ]; then
+  echo "ОХВАТ НЕ ПРОВЕРЕН: compose config не прочитался — сколько сервисов"
+  echo "                   осталось за таблицей, отсюда не видно."
+else
+  listed="$(printf '%s\n' $MAP | sed '/^$/d' | cut -d: -f1 | sort -u)"
+  missed="$(comm -23 <(printf '%s\n' "$built") <(printf '%s\n' "$listed"))"
+  stale="$(comm -13 <(printf '%s\n' "$built") <(printf '%s\n' "$listed"))"
+  echo "ОХВАТ: сервисов со сборкой в компоузе $(printf '%s\n' "$built" | wc -l | tr -d ' '), осмотрено выше $(printf '%s\n' "$listed" | wc -l | tr -d ' ')"
+  [ -n "$missed" ] && { echo "НЕ ОСМОТРЕНЫ (есть в компоузе, нет в MAP):"; printf '  - %s\n' $missed; }
+  [ -n "$stale" ]  && { echo "ЛИШНИЕ В MAP (нет в компоузе):"; printf '  - %s\n' $stale; }
+  [ -z "$missed$stale" ] && echo "       расхождений нет"
+fi
