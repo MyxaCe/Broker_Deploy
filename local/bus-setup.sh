@@ -62,10 +62,24 @@ fi
 ctl set_permissions -p "$VHOST" site-web "" '^platform\.events$' "" >/dev/null
 
 # cabinet — выведено из того, что делает консюмер, а не выдано про запас.
-# configure на platform.events нужен только из-за assertExchange в
-# subscriber.ts: сделают зеркальный REL-03 — сузится и здесь.
+#
+# СУЖЕНО 19.10 по решению Р-051. Зеркальный REL-03 сделан (CON-04): консюмер
+# объявляет обменник ПАССИВНО (`checkExchange`), а пассивное объявление
+# `configure` не требует — значит `platform.events` ушёл из configure.
+#
+# `cabinet.terminal-projection` в configure ОСТАЁТСЯ, и это решение, а не
+# упущение: очередь объявляется активно сознательно, её владелец — сам
+# консюмер, и потерянную очередь пересоздать больше некому. Пассивной её
+# делать нечему. Р-051; у `site-platform` закреплено тестом-растяжкой.
+#
+# Остальные поля выведены по одному вызову в subscriber.ts:
+#   write cabinet.terminal-projection — `bindQueue` требует write на очередь
+#   write platform.events.dlx         — DLX проверяется при queue.declare
+#   read  platform.events             — `bindQueue` требует read на обменник
+#   read  cabinet.terminal-projection — `consume`
+#   read  ...dlq                      — разбор отбракованного руками
 ctl set_permissions -p "$VHOST" cabinet \
-  '^(platform\.events|cabinet\.terminal-projection)$' \
+  '^cabinet\.terminal-projection$' \
   '^(cabinet\.terminal-projection|platform\.events\.dlx)$' \
   '^(platform\.events|cabinet\.terminal-projection(\.dlq)?)$' >/dev/null
 
