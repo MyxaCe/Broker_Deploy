@@ -1,0 +1,90 @@
+name: CI
+
+# ПРЕДЛОЖЕНИЕ команды `deploy` для зоны `mds` (OPS-18, Р-077).
+# Кладётся в mds/.github/workflows/ci.yml. Разбор решения — README.md рядом.
+#
+# ТРИГГЕР: пуш в ЛЮБУЮ ветку. Каталога .github в зоне не существовало вовсе,
+# и именно здесь смоук был красным месяц — он честно печатал отказ, но его
+# никто не запускал. Красный, которого не смотрят, равен зелёному.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4          # версия берётся из packageManager
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tsconfig.test.json уже заведён зоной mds 19.10 и уже поймал настоящую
+      # ошибку модели и ссылку на несуществующий тест-файл. Команда
+      # `pnpm typecheck` зовёт ОБА конфига — проверено в package.json.
+      - name: Typecheck (обе конфигурации, включая тестовый код)
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # --- Смоук: контрактная половина, БЕЗ живой биржи ------------------
+      #
+      # Это та половина, в которой жил месячный дефект: MDS-03 убрала поле
+      # `status` у провайдера, а смоук продолжал его сверять. Проверка формы
+      # нашего собственного ответа от Binance не зависит ничем — и потому
+      # блокирует.
+      #
+      # ТРЕБУЕТ scripts/fake-binance.mjs — его пишет зона mds, требования в
+      # README.md рядом. Пока файла нет, шаг честно падает: это НЕ повод
+      # сделать его неблокирующим.
+      - name: Поднять поддельный апстрим и MDS
+        run: |
+          set -euo pipefail
+          test -f scripts/fake-binance.mjs || {
+            echo "ПРОВАЛ: нет scripts/fake-binance.mjs — контрактный смоук НЕ ВЫПОЛНЕН," >&2
+            echo "        результат неизвестен. Требования к файлу: deploy/proposed/mds/README.md" >&2
+            exit 1
+          }
+          node scripts/fake-binance.mjs & echo $! > /tmp/fake.pid
+          QUOTE_STALE_AFTER_MS=60000 \
+          BINANCE_WS_URL=ws://127.0.0.1:19443 \
+          MDS_ADMIN_TOKEN=${{ secrets.MDS_ADMIN_TOKEN || 'ci-token-не-короче-24-символов' }} \
+          PORT=3003 \
+          node dist/index.js & echo $! > /tmp/mds.pid
+          # Ждём готовности ПО ОТВЕТУ, а не по sleep.
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3003/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3003/health | head -c 2000; echo
+
+      - name: Смоук — контрактная половина
+        env:
+          MDS_URL: http://127.0.0.1:3003
+          MDS_SMOKE_MODE: contract
+          MDS_ADMIN_TOKEN: ${{ secrets.MDS_ADMIN_TOKEN || 'ci-token-не-короче-24-символов' }}
+        run: node scripts/smoke.mjs
+
+      # Снимаем ПО ИМЕНИ и БЕЗУСЛОВНО. `timeout` убивает CLI, а не процесс —
+      # на этом мы уже дважды теряли время на конкурирующем потребителе.
+      - name: Снять поднятое
+        if: always()
+        run: |
+          for p in /tmp/mds.pid /tmp/fake.pid; do
+            [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null || true
+          done
+          wait 2>/dev/null || true
