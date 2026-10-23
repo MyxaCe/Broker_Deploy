@@ -1,0 +1,49 @@
+# Шина событий · OPS-24, этап 2.
+#
+# ПОРТОВ НАРУЖУ НЕТ — ни 5672, ни 15672. Консоль управления сознательно НЕ
+# выведена на отдельное имя в прокси: штаб просил заглушки остальных имён не
+# трогать. Смотреть её сегодня — через `docker exec`, и это записано, а не
+# забыто.
+#
+# ОБРАЗ С ПЛАГИНОМ УПРАВЛЕНИЯ взят не ради консоли, а ради `rabbitmqadmin`:
+# без него топологию объявлять нечем, и bus-setup.sh честно напечатал бы
+# «НЕ СДЕЛАНО».
+#
+# ПОЛЬЗОВАТЕЛЬ ИЗ RABBITMQ_DEFAULT_USER ПОЛУЧАЕТ ТЕГ administrator — это
+# свойство переменной, а не наш выбор. Поэтому здесь заводится ТОЛЬКО
+# администратор шины; кредлы приложений заводит bus-setup.sh и СНИМАЕТ с них
+# теги явно. Узкие права AMQP ничего не говорят о правах HTTP: пользователь с
+# тегом administrator читает все очереди и правит права через management-API.
+
+name: broker-bus
+
+services:
+  rabbit:
+    image: rabbitmq:3.13-management-alpine
+    container_name: broker-bus
+    restart: unless-stopped
+    hostname: broker-bus
+    # hostname закреплён: RabbitMQ кладёт данные в каталог по имени узла
+    # (rabbit@<hostname>). Случайное имя контейнера после пересоздания увело
+    # бы узел в ПУСТОЙ каталог — том цел, а данных «нет».
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BUS_ADMIN_USER}
+      RABBITMQ_DEFAULT_PASS: ${BUS_ADMIN_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: platform
+    volumes:
+      - data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'check_running']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks: [back]
+
+networks:
+  back:
+    external: true
+    name: broker-back
+
+volumes:
+  data:
