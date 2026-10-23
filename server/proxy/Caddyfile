@@ -42,7 +42,10 @@ terminal.{$DOMAIN} {
 	reverse_proxy broker-terminal-web:80
 }
 
+# АДМИНКА CMS. Ограничение по источнику ОСТАЁТСЯ: наружу она не смотрит.
+# Стоит оно здесь, а не в брандмауэре, потому что все имена живут на одном
+# порту 443 и по адресу назначения их не различить.
 cms.{$DOMAIN} {
 	import adminonly
-	respond "cms: mesto zanyato" 200
+	reverse_proxy broker-cms:3001
 }

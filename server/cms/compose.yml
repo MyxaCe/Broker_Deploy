@@ -1,0 +1,118 @@
+# CMS (legacy) · OPS-27.
+#
+# ОБРАЗЫ ТОЛЬКО ИЗ РЕЕСТРА. ПОРТОВ НАРУЖУ НЕТ.
+# Админка открыта только с адреса владельца — ограничение стоит В ПРОКСИ,
+# а не в брандмауэре: имена живут на одном 443, и по адресу назначения их
+# не различить.
+#
+# ДОМЕН приходит из `../proxy/.env`, общие с витриной секреты — из
+# `../site/.env`. Поэтому стек поднимается через `./compose.sh`: три
+# `--env-file` и есть механизм, который держит каждый секрет в одном месте.
+# `CMS_API_KEY`, `CMS_WEBHOOK_SECRET` и `PREVIEW_SECRET` читают ОБА стека, и
+# лежат они у витрины — разъехавшаяся пара ключей даёт отказ, который
+# выглядит как «CMS не отвечает».
+
+name: broker-cms
+
+services:
+  db:
+    image: postgres:16-alpine
+    # Имя под фильтр бэкапа (`-db-` в имени контейнера).
+    container_name: broker-db-cms
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cms
+      POSTGRES_PASSWORD: ${CMS_DB_PASSWORD}
+      POSTGRES_DB: broker_cms
+      # ВНИМАНИЕ: пользователь `cms`, база `broker_cms` — имена РАЗНЫЕ.
+      # Это третья база, попадающая в ловушку B-OPS-022: перепись строк в
+      # `backup.sh` ходит `psql -U <пользователь>` без `-d` и уходит в базу,
+      # одноимённую пользователю. Имя базы НЕ подогнано под сломанный
+      # скрипт сознательно: правильное поведение по совпадению защитой не
+      # является, а починка живёт в зоне бэкапов.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cms -d broker_cms']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [inside]
+
+  migrate:
+    # Стадия `build` того же коммита: в рантайм-образе нет ни pnpm, ни
+    # payload, ни исходников — мигрировать и сеять там нечем.
+    image: ghcr.io/myxace/broker-cms-migrate:${CMS_REVISION}
+    container_name: broker-cms-migrate
+    # ОДНОРАЗОВАЯ ДЖОБА. `no` — осознанно: при любом перезапуске миграции
+    # стали бы бесконечным циклом, а `cms` ждёт её через
+    # `service_completed_successfully`. Не «чинить» на unless-stopped.
+    restart: 'no'
+    command:
+      - sh
+      - -c
+      # БЕЗ `|| echo 'seed skipped'`. Именно эта конструкция однажды стёрла
+      # код возврата: сид падал, контейнер выходил нулём, cms поднималась
+      # по `service_completed_successfully` поверх ПУСТОЙ базы, `/v1/health`
+      # отвечал `db: ok`, а наружу это выходило как `404 unknown_site`, и
+      # три команды месяц считали контур нерабочим (B-OPS-001).
+      # Пустая CMS хуже не поднявшейся.
+      - pnpm payload migrate && NODE_ENV=production DEFAULT_SITE=apex-ru pnpm seed
+    environment:
+      DATABASE_URL: postgres://cms:${CMS_DB_PASSWORD}@db:5432/broker_cms
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      DEFAULT_SITE: apex-ru
+      # `NODE_ENV=production` при сиде обязателен на мигрированной базе
+      # (B-016 зоны CMS) — он в команде выше, а не здесь, чтобы не задеть
+      # сам `payload migrate`.
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      SEED_EDITOR_EMAIL: ${SEED_EDITOR_EMAIL}
+      SEED_EDITOR_PASSWORD: ${SEED_EDITOR_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [inside]
+
+  cms:
+    image: ghcr.io/myxace/broker-cms:${CMS_REVISION}
+    container_name: broker-cms
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://cms:${CMS_DB_PASSWORD}@db:5432/broker_cms
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      CMS_API_KEY: ${CMS_API_KEY}
+      DEFAULT_SITE: apex-ru
+      # Адреса для БРАУЗЕРА редактора и посетителя — публичные имена.
+      CMS_PUBLIC_URL: https://cms.${DOMAIN}
+      SITE_URL: https://${DOMAIN}
+      # Вебхук уходит ИЗ контейнера в контейнер: публичное имя увело бы
+      # запрос наружу и обратно через прокси. Пара та же, что у терминала.
+      SITE_WEBHOOK_URL: http://broker-web:3000/api/revalidate
+      SITE_WEBHOOK_SECRET: ${CMS_WEBHOOK_SECRET}
+      SITE_PREVIEW_SECRET: ${PREVIEW_SECRET}
+      # MDS_HTTP_URL НЕ ЗАДАН: сервера котировок нет. Поле выбора
+      # инструментов в админке останется без вселенной — это видно на
+      # экране и чинится появлением MDS, а не адресом в никуда.
+    volumes:
+      - media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [inside, edge, back]
+
+networks:
+  inside:
+    driver: bridge
+  edge:
+    external: true
+    name: broker-edge
+  back:
+    external: true
+    name: broker-back
+
+volumes:
+  db-data:
+  media:

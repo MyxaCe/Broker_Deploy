@@ -60,15 +60,20 @@ services:
       SITE_SLUG: apex-ru
       CMS_WEBHOOK_SECRET: ${CMS_WEBHOOK_SECRET}
       PREVIEW_SECRET: ${PREVIEW_SECRET}
-      # CMS_API_URL, CMS_API_KEY, MDS_HTTP_URL НЕ ЗАДАНЫ СОЗНАТЕЛЬНО.
-      # Ни CMS, ни MDS не развёрнуты. Задать адрес в никуда значило бы
-      # получить «сосед недоступен» там, где правда — «соседа нет»: это
-      # разные состояния, и витрина их различает. Чем она отвечает в этом
-      # режиме — проверено живьём, см. ЗАДАЧИ.md OPS-25.
+      # CMS развёрнута с 23.10 (OPS-27). Адрес СЕРВЕРНЫЙ, контейнер в
+      # контейнер: публичное имя увело бы запрос наружу и обратно через
+      # прокси, а админка там ещё и закрыта по источнику — витрина
+      # получала бы 403 и считала CMS сломанной.
+      CMS_API_URL: http://broker-cms:3001/v1
+      CMS_API_KEY: ${CMS_API_KEY}
+      # MDS_HTTP_URL НЕ ЗАДАН СОЗНАТЕЛЬНО: сервера котировок нет. Адрес в
+      # никуда дал бы «сосед недоступен» там, где правда — «соседа нет».
     depends_on:
       db:
         condition: service_healthy
-    networks: [inside, edge]
+    # `back` добавлена OPS-27: по ней витрина ходит в CMS. `edge` — путь
+    # снаружи внутрь, трафику между приложениями там не место.
+    networks: [inside, edge, back]
 
   cabinet:
     image: ghcr.io/myxace/broker-cabinet:${SITE_REVISION}
@@ -82,6 +87,8 @@ services:
       DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
       SITE_SLUG: apex-ru
       UPLOAD_DIR: /app/uploads
+      CMS_API_URL: http://broker-cms:3001/v1
+      CMS_API_KEY: ${CMS_API_KEY}
       # Адрес терминала ДЛЯ ПРОЦЕССА, не для браузера (CAB-09). История
       # сделок читается кабинетом из контейнера, и публичное имя увело бы
       # запрос наружу и обратно через прокси. Пара та же, что у MDS:
