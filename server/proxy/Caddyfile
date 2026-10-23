@@ -16,12 +16,16 @@
 	respond @chuzhoy "Dostup ogranichen" 403
 }
 
+# ВИТРИНА И КАБИНЕТ — настоящие приложения с 23.10 (OPS-25). Их образы
+# домена не знают: адреса подставляются в собранный вывод при старте
+# контейнера (Р-220), поэтому смена домена здесь и в `.env` рядом — это
+# по-прежнему одна правка, без пересборки.
 {$DOMAIN} {
-	respond "vitrina: mesto zanyato, prilozheniya eshchyo net" 200
+	reverse_proxy broker-web:3000
 }
 
 cabinet.{$DOMAIN} {
-	respond "kabinet: mesto zanyato" 200
+	reverse_proxy broker-cabinet:3002
 }
 
 # ТЕРМИНАЛ — ЕДИНСТВЕННОЕ ИМЯ С НАСТОЯЩИМ ПРИЛОЖЕНИЕМ (OPS-24, этап 2).

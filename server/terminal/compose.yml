@@ -48,9 +48,8 @@ services:
     networks: [inside]
 
   gateway:
-    # ghcr.io/myxace/broker-terminal-gateway
-    # digest sha256:ab19cd90b8a4a2577890038a365c9ba3a77e93de65eb1010ccbebfc9edaac430
-    image: ghcr.io/myxace/broker-terminal-gateway:3bf7d7288128b2d3918042f1be1d85705564f85b
+    # Ревизия — в файле `.revision` рядом, одна строка на весь стек.
+    image: ghcr.io/myxace/broker-terminal-gateway:${TERMINAL_REVISION}
     container_name: broker-terminal-gateway
     restart: unless-stopped
     environment:
@@ -59,6 +58,12 @@ services:
       # исчезает при рестарте, а интерфейс от режима с базой неотличим
       # (КОНТРАКТЫ §5в). Здесь он задан намеренно.
       SSO_DISABLED: '1'
+      # Адрес кабинета, откуда шлюз берёт JWKS для проверки handoff-JWT.
+      # СЕГОДНЯ ИНЕРТЕН: при SSO_DISABLED=1 шлюз сессий не спрашивает.
+      # Задан, чтобы включение режима было правкой ОДНОЙ переменной, а не
+      # поиском второй — режим, управляемый несколькими переменными,
+      # чинится целиком или не чинится.
+      CABINET_URL: https://cabinet.${DOMAIN}
       DEMO_START_BALANCE_CENTS: '1000000'
       # CMS_BASE_URL, CMS_API_KEY, TENANT_INSTRUMENTS НЕ ЗАДАНЫ СОЗНАТЕЛЬНО.
       # Все три пусты → тенантного режима нет, allow-list не применяется,
@@ -72,17 +77,16 @@ services:
     networks: [inside]
 
   web:
-    # ghcr.io/myxace/broker-terminal-web
-    # digest sha256:c8861b36ad8b64d8374dd8e50daca82ad0236e1e7340efca1d3b8eb6067c0669
-    image: ghcr.io/myxace/broker-terminal-web:3bf7d7288128b2d3918042f1be1d85705564f85b
+    image: ghcr.io/myxace/broker-terminal-web:${TERMINAL_REVISION}
     container_name: broker-terminal-web
     restart: unless-stopped
     environment:
-      # Кто имеет право встраивать терминал в iframe. Сегодня — НИКТО: ни
-      # витрина, ни кабинет не развёрнуты. `'none'` это fail-closed, и он
-      # ОБЯЗАН смениться на origin кабинета в тот же заход, что и выкатка
-      # кабинета (КОНТРАКТЫ §6, список 1). Образ по умолчанию несёт `*`.
-      FRAME_ANCESTORS: "'none'"
+      # Кто имеет право встраивать терминал в iframe. С выкаткой кабинета
+      # (OPS-25) список перестал быть пустым: это первая из шести
+      # производных строк КОНТРАКТЫ §6, и ведётся она руками. Витрина
+      # терминал не встраивает и сюда не входит. Образ по умолчанию
+      # несёт `*` — открыто всем; значение здесь обязательно.
+      FRAME_ANCESTORS: https://cabinet.${DOMAIN}
       # ВНИМАНИЕ: две переменные ниже СЕГОДНЯ НИ НА ЧТО НЕ ВЛИЯЮТ.
       # Скрипт, который рендерит из них `config.js`, лежит в образе БЕЗ бита
       # исполнения, и nginx его пропускает: «Ignoring
@@ -102,8 +106,11 @@ services:
     networks:
       # `inside` нужна, чтобы nginx дотянулся до `gateway:8080` — адрес зашит
       # в nginx.conf образа. `edge` — чтобы до самого nginx дотянулся прокси.
+      # `back` — чтобы кабинет читал историю сделок изнутри, не выходя
+      # наружу и обратно через прокси (CAB-09).
       - inside
       - edge
+      - back
 
 networks:
   inside:
@@ -113,6 +120,9 @@ networks:
   edge:
     external: true
     name: broker-edge
+  back:
+    external: true
+    name: broker-back
 
 volumes:
   pgdata:
