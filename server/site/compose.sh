@@ -14,9 +14,13 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_ENV="$HERE/../proxy/.env"
+# Пароли кредлов шины лежат у шины и читаются оттуда: копия здесь была
+# бы второй правдой, а разъехавшийся пароль даёт отказ при ближайшем
+# ПЕРЕПОДКЛЮЧЕНИИ, а не при старте, — то есть в понедельник.
+BUS_ENV="$HERE/../bus/.env"
 OWN_ENV="$HERE/.env"
 
-for f in "$PROXY_ENV" "$OWN_ENV"; do
+for f in "$PROXY_ENV" "$BUS_ENV" "$OWN_ENV"; do
     [ -f "$f" ] || { echo "нет $f — без него подставлять нечего" >&2; exit 1; }
 done
 
@@ -30,4 +34,4 @@ case "$REV" in
 esac
 
 exec env SITE_REVISION="$REV" docker compose \
-    --env-file "$PROXY_ENV" --env-file "$OWN_ENV" "$@"
+    --env-file "$PROXY_ENV" --env-file "$BUS_ENV" --env-file "$OWN_ENV" "$@"

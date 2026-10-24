@@ -56,12 +56,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    networks: [back]
+    # `back` — к MDS ходят витрина, кабинет и CMS изнутри.
+    # `edge` добавлена OPS-29: публичные ручки котировок проксирует
+    # Caddy, а он живёт в `edge`. Без неё правило в Caddyfile
+    # совпадает, но отдаёт 502 — наблюдено, а не предположено.
+    networks: [back, edge]
 
 networks:
   back:
     external: true
     name: broker-back
+  edge:
+    external: true
+    name: broker-edge
 
 volumes:
   registry:
