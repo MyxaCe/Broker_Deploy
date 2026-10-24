@@ -1,0 +1,128 @@
+# Терминал на сервере · OPS-24, этап 2.
+#
+# ОБРАЗЫ ТОЛЬКО ИЗ РЕЕСТРА, ПО ХЕШУ КОММИТА. Ни одного `build:` в этом файле —
+# сборка на сервере отменена OPS-23, и если она вернётся сюда, задача потеряет
+# смысл целиком.
+#
+# ПОРТЫ НАРУЖУ НЕ ПУБЛИКУЮТСЯ ВОВСЕ. Ни одного `ports:`. Снаружи доступен один
+# прокси, он ходит в `web` по внутренней сети `broker-edge`. Заслон
+# `broker-docker-firewall` это и так перехватил бы, но полагаться на заслон
+# вместо правильной настройки — то же, что полагаться на прочитанную записку.
+#
+# РЕЖИМ — STANDALONE, И ЭТО ТРИ СОГЛАСОВАННЫЕ ПЕРЕМЕННЫЕ, А НЕ ОДНА.
+# Правило платформы: режим, управляемый несколькими переменными, чинится
+# целиком или не чинится.
+#   SSO_DISABLED=1   у шлюза  — торговые ручки открыты без сессии кабинета;
+#   CABINET_ORIGIN=""  у фронта — пусто, иначе фронт уходит в embedded-режим
+#                      и торговые ручки не дёргает ВОВСЕ, даже при открытом
+#                      шлюзе. Это и есть «конфигурация, выглядящая исправной»;
+#   BRAND_URL=""       у фронта — заданный адрес без живой CMS даёт ошибку в
+#                      консоли на каждой загрузке.
+# Кабинет и CMS сегодня не развёрнуты, поэтому все три держим в одном режиме.
+
+name: broker-terminal
+
+services:
+  db:
+    image: postgres:16-alpine
+    # ИМЯ ВЫБРАНО ПОД ФИЛЬТР БЭКАПА. `backup.sh` ищет контейнеры по
+    # `grep -E 'postgres|-db-'` ПО ИМЕНИ. `broker-terminal-db` под этот фильтр
+    # НЕ попал бы — «db» на конце, без замыкающего дефиса, — и база молча не
+    # попала бы в снимок. Имя здесь не косметика.
+    container_name: broker-db-terminal
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${TERMINAL_DB_USER}
+      POSTGRES_PASSWORD: ${TERMINAL_DB_PASSWORD}
+      POSTGRES_DB: ${TERMINAL_DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Шлюз поднимается только когда база реально принимает подключения:
+      # иначе он упадёт на восстановлении состояния, а работать на неизвестном
+      # состоянии счетов нельзя.
+      test: ['CMD-SHELL', 'pg_isready -U ${TERMINAL_DB_USER} -d ${TERMINAL_DB_NAME}']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [inside]
+
+  gateway:
+    # Ревизия — в файле `.revision` рядом, одна строка на весь стек.
+    image: ghcr.io/myxace/broker-terminal-gateway:${TERMINAL_REVISION}
+    container_name: broker-terminal-gateway
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${TERMINAL_DB_USER}:${TERMINAL_DB_PASSWORD}@db:5432/${TERMINAL_DB_NAME}
+      # Задан DATABASE_URL → PgStore. Без него состояние живёт в памяти и
+      # исчезает при рестарте, а интерфейс от режима с базой неотличим
+      # (КОНТРАКТЫ §5в). Здесь он задан намеренно.
+      SSO_DISABLED: '1'
+      # Адрес кабинета, откуда шлюз берёт JWKS для проверки handoff-JWT.
+      # СЕГОДНЯ ИНЕРТЕН: при SSO_DISABLED=1 шлюз сессий не спрашивает.
+      # Задан, чтобы включение режима было правкой ОДНОЙ переменной, а не
+      # поиском второй — режим, управляемый несколькими переменными,
+      # чинится целиком или не чинится.
+      CABINET_URL: https://cabinet.${DOMAIN}
+      DEMO_START_BALANCE_CENTS: '1000000'
+      # CMS_BASE_URL, CMS_API_KEY, TENANT_INSTRUMENTS НЕ ЗАДАНЫ СОЗНАТЕЛЬНО.
+      # Все три пусты → тенантного режима нет, allow-list не применяется,
+      # отдаётся полный список инструментов. Это standalone по КОНТРАКТЫ §4б:
+      # «в standalone юрисдикции нет, ограничивать нечего». Задать CMS_BASE_URL
+      # при неподнятой CMS значило бы получить fail-closed — терминал, который
+      # не открывает ни одного инструмента.
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [inside]
+
+  web:
+    image: ghcr.io/myxace/broker-terminal-web:${TERMINAL_REVISION}
+    container_name: broker-terminal-web
+    restart: unless-stopped
+    environment:
+      # Кто имеет право встраивать терминал в iframe. С выкаткой кабинета
+      # (OPS-25) список перестал быть пустым: это первая из шести
+      # производных строк КОНТРАКТЫ §6, и ведётся она руками. Витрина
+      # терминал не встраивает и сюда не входит. Образ по умолчанию
+      # несёт `*` — открыто всем; значение здесь обязательно.
+      FRAME_ANCESTORS: https://cabinet.${DOMAIN}
+      # ВНИМАНИЕ: две переменные ниже СЕГОДНЯ НИ НА ЧТО НЕ ВЛИЯЮТ.
+      # Скрипт, который рендерит из них `config.js`, лежит в образе БЕЗ бита
+      # исполнения, и nginx его пропускает: «Ignoring
+      # /docker-entrypoint.d/40-terminal-config.sh, not executable»
+      # (B-OPS-016, адрес — зона `terminal`). Механизм ADR-023, ради которого
+      # терминал и выбран для выкатки первым, в собранном образе НЕ РАБОТАЕТ.
+      #
+      # Сегодня это незаметно, потому что нужны ровно пустые значения, и
+      # недостающий `window.TERMINAL_CONFIG` читается через `|| {}`. То есть
+      # правильное поведение получено СОВПАДЕНИЕМ, а не нашей настройкой.
+      # Оставлены заданными намеренно: пустая строка — то, что мы просим, и
+      # в день починки образа ничего менять здесь не придётся.
+      BRAND_URL: ''
+      CABINET_ORIGIN: ''
+    depends_on:
+      - gateway
+    networks:
+      # `inside` нужна, чтобы nginx дотянулся до `gateway:8080` — адрес зашит
+      # в nginx.conf образа. `edge` — чтобы до самого nginx дотянулся прокси.
+      # `back` — чтобы кабинет читал историю сделок изнутри, не выходя
+      # наружу и обратно через прокси (CAB-09).
+      - inside
+      - edge
+      - back
+
+networks:
+  inside:
+    # Внутренняя сеть стека. Алиас `gateway` живёт только здесь и не
+    # сталкивается с чужими службами на общих сетях.
+    driver: bridge
+  edge:
+    external: true
+    name: broker-edge
+  back:
+    external: true
+    name: broker-back
+
+volumes:
+  pgdata:

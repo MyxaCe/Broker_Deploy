@@ -1,0 +1,43 @@
+# Кеш платформы · OPS-24, этап 2.
+#
+# ПОРТОВ НАРУЖУ НЕТ. Доступен только из сети `broker-back`.
+#
+# ПАРОЛЬ ОБЯЗАТЕЛЕН, ХОТЯ СЕТЬ И ВНУТРЕННЯЯ. Redis без пароля в сети, куда
+# завтра приедут ещё несколько служб, — это доступ «кто дотянулся, тот и
+# прочитал». Граница доступа не должна держаться на том, что соседей пока нет:
+# правильное поведение по совпадению защитой не является.
+#
+# ПОТРЕБИТЕЛЯ У НЕГО СЕГОДНЯ НЕТ. Кеш и ограничение частоты нужны витрине и
+# кабинету, а они не развёрнуты (WEB-22). Поднят по указанию штаба как часть
+# инфраструктурного слоя; проверен настоящей операцией, а не статусом
+# контейнера, — см. ЗАДАЧИ.md, OPS-24.
+
+name: broker-cache
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: broker-cache
+    restart: unless-stopped
+    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}', '--appendonly', 'yes']
+    volumes:
+      - data:/data
+    healthcheck:
+      # Проверяем ОТВЕТОМ СЛУЖБЫ, а не тем, что процесс жив: `redis-cli ping`
+      # с паролем обязан вернуть PONG. Без `-a` он вернёт NOAUTH, и проверка
+      # покраснеет — это правильно, пароль часть работоспособности.
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [back]
+
+networks:
+  back:
+    external: true
+    name: broker-back
+
+volumes:
+  data:
