@@ -1,0 +1,119 @@
+# Сбор метрик платформы. Файл РЕНДЕРИТСЯ из этого шаблона при подъёме
+# (`compose.sh` → envsubst): домен живёт в `proxy/.env`, пароли — у своих
+# служб, и копировать их сюда значило бы завести вторую правду.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/conf/pravila.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['broker-alertmanager:9093']
+
+scrape_configs:
+  # --- 1. Живость снаружи: как её видит посетитель ----------------------
+  - job_name: snaruzhi
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    static_configs:
+      - targets:
+          - https://${DOMAIN}/
+          - https://cabinet.${DOMAIN}/login
+          - https://terminal.${DOMAIN}/health
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-blackbox:9115' }
+
+  # Админка CMS закрыта по адресу источника, и правильный ответ для нас —
+  # 403, а не 200. Проверять её модулем http_2xx значило бы завести
+  # оповещение, которое звонит при ИСПРАВНОЙ защите.
+  - job_name: snaruzhi-admin
+    metrics_path: /probe
+    params: { module: [http_403] }
+    static_configs:
+      - targets: ['https://cms.${DOMAIN}/']
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-blackbox:9115' }
+
+  # --- 2. Живость изнутри: приложения -----------------------------------
+  - job_name: vnutri
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    static_configs:
+      - targets:
+          - http://broker-web:3000/api/health
+          - http://broker-cabinet:3002/api/health
+          - http://broker-cms:3001/admin/login
+          - http://broker-mds:3003/health
+          - http://broker-terminal-gateway:8080/health
+          - http://broker-terminal-web:80/
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-blackbox:9115' }
+
+  # --- 3. Живость хранилищ: TCP, у них нет HTTP -------------------------
+  - job_name: hranilishcha
+    metrics_path: /probe
+    params: { module: [tcp_connect] }
+    static_configs:
+      - targets:
+          - broker-db-site:5432
+          - broker-db-cms:5432
+          - broker-db-terminal:5432
+          - broker-bus:5672
+          - broker-cache:6379
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-blackbox:9115' }
+
+  # --- 4. Содержимое ответов: то, чего «порт отвечает» не видит ---------
+  # Очередь отправки терминала и возраст котировок. Контейнер `Up` при
+  # протухшем фиде и растущей очереди выглядит здоровым — это ровно тот
+  # случай, ради которого раздел и существует.
+  - job_name: terminal-sostoyanie
+    metrics_path: /probe
+    params: { module: [terminal] }
+    static_configs:
+      - targets: ['http://broker-terminal-gateway:8080/health']
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-json:7979' }
+
+  - job_name: mds-sostoyanie
+    metrics_path: /probe
+    params: { module: [mds] }
+    static_configs:
+      - targets: ['http://broker-mds:3003/health']
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-json:7979' }
+
+  # --- 5. Длина очереди шины --------------------------------------------
+  - job_name: shina-ocheredi
+    metrics_path: /probe
+    params: { module: [rabbit] }
+    static_configs:
+      - targets: ['http://broker-bus:15672/api/queues/platform/cabinet.terminal-projection']
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 'broker-json:7979' }
+
+  # --- 6. Машина ---------------------------------------------------------
+  - job_name: mashina
+    static_configs:
+      - targets: ['broker-node:9100']
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

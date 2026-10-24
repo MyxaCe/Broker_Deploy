@@ -1,0 +1,58 @@
+# Доставка оповещений.
+#
+# АДРЕСАТА ЕЩЁ НЕТ, и это не повод не включать механизм: пока владелец не
+# дал бота и чат, критическое уходит в ЖУРНАЛ И ФАЙЛ. Так проверено, что
+# путь работает, а не что он написан.
+#
+# ПЕРЕКЛЮЧЕНИЕ — ОДНА СТРОКА В `.env`: `POLUCHATEL_KRIT=telegram`
+# (и три значения рядом). Этот файл при этом не трогается.
+#
+# Получатели telegram и pochta объявлены ВСЕГДА, с заполнителями вместо
+# значений: Alertmanager проверяет все получатели при загрузке, и пустое
+# поле уронило бы его целиком. Пока маршрут на них не ведёт, они инертны.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: zhurnal
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+  routes:
+    - matchers: [ 'severity="critical"' ]
+      receiver: ${POLUCHATEL_KRIT}
+      group_wait: 10s
+      repeat_interval: 30m
+
+receivers:
+  - name: zhurnal
+    webhook_configs:
+      - url: 'http://broker-alert-log:8080/'
+        send_resolved: true
+
+  - name: telegram
+    webhook_configs:
+      - url: 'http://broker-alert-log:8080/'
+        send_resolved: true
+    telegram_configs:
+      - bot_token: '${TG_BOT_TOKEN}'
+        chat_id: ${TG_CHAT_ID}
+        api_url: 'https://api.telegram.org'
+        send_resolved: true
+        message: |
+          {{ if eq .Status "firing" }}СБОЙ{{ else }}восстановилось{{ end }}: {{ .CommonLabels.alertname }}
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ end }}
+
+  - name: pochta
+    webhook_configs:
+      - url: 'http://broker-alert-log:8080/'
+        send_resolved: true
+    email_configs:
+      - to: '${MAIL_TO}'
+        from: '${MAIL_FROM}'
+        smarthost: '${MAIL_SMTP}'
+        auth_username: '${MAIL_USER}'
+        auth_password: '${MAIL_PASS}'
+        send_resolved: true

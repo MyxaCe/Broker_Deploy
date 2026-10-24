@@ -1,0 +1,140 @@
+# Наблюдение за платформой · OPS-37.
+#
+# ЧТО ЭТО ЗАКРЫВАЕТ. До сегодня отказ замечал владелец или клиент: трекер
+# ловит исключения, но молчит, когда служба легла, очередь растёт или фид
+# протух. Это единственная строка реестра готовности, которой не было
+# вовсе, — и начинаем мы с неё, а не с дашбордов.
+#
+# ПОЧЕМУ НЕ ZABBIX СЕГОДНЯ. Он назван владельцем и нужен — но это сервер,
+# своя база и веб-морда, то есть ещё три контейнера и час настройки ради
+# того, что здесь уже закрыто: живость служб, диск, сеть. За отведённый
+# час ценнее поднять путь «правило → оповещение» и проверить его
+# срабатыванием. Zabbix — следующим заходом, и он добавит то, чего здесь
+# нет: инвентарь машины, SNMP, историю железа.
+#
+# ПОРТОВ НАРУЖУ НЕТ. Grafana и Prometheus смотрят внутрь; наружу их
+# выведет прокси отдельным решением штаба — это админки, и им нужен тот
+# же заслон по источнику, что у CMS.
+
+name: broker-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: broker-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/rendered/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      # История, а не только текущее состояние — требование владельца.
+      # 30 суток на наших объёмах это сотни мегабайт, не десятки гигабайт.
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      # КАТАЛОГАМИ, А НЕ ПОФАЙЛОВО. Bind-mount одного файла держится за
+      # inode: правка снаружи, заменившая файл, до контейнера не доходит,
+      # а `promtool` и `/-/reload` при этом отчитываются успехом. Я
+      # наступил на это дважды за день — сперва с Caddyfile (B-OPS-023),
+      # потом здесь, с файлом правил. Каталог от этого свободен.
+      - ./rendered:/etc/prometheus/rendered:ro
+      - ./conf:/etc/prometheus/conf:ro
+      - prometheus-data:/prometheus
+    networks: [back, edge]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    container_name: broker-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/rendered/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./rendered:/etc/alertmanager/rendered:ro
+      - alertmanager-data:/alertmanager
+    networks: [back]
+
+  # Приёмник оповещений до появления адресата. Пишет в журнал контейнера
+  # и в файл на томе: без него «оповещения настроены» проверялось бы
+  # чтением конфигурации, а не срабатыванием.
+  alert-log:
+    image: python:3.12-alpine
+    container_name: broker-alert-log
+    restart: unless-stopped
+    command: ['python', '-u', '/sink/zhurnal.py']
+    volumes:
+      - ./sink:/sink:ro
+      - alert-log:/zhurnal
+    networks: [back]
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: broker-blackbox
+    restart: unless-stopped
+    command: ['--config.file=/etc/bb/blackbox.yml']
+    volumes:
+      - ./conf:/etc/bb:ro
+    # Базы живут КАЖДАЯ в своей внутренней сети стека, и это правильно:
+    # наружу им незачем. Но проба, не достающая до цели, даёт отказ,
+    # неотличимый от настоящего, — первая редакция подняла ложную тревогу
+    # по всем трём базам сразу. Пробник подключён к их сетям, а не базы
+    # вынесены наружу.
+    networks: [back, edge, site-inside, cms-inside, terminal-inside]
+
+  # Съём ЧИСЕЛ ИЗ ОТВЕТА: очередь отправки терминала, возраст котировок,
+  # длина очереди на шине. «Порт отвечает» всего этого не видит.
+  json:
+    image: quay.io/prometheuscommunity/json-exporter:v0.6.0
+    container_name: broker-json
+    restart: unless-stopped
+    command: ['--config.file=/etc/json/json-exporter.yml']
+    volumes:
+      - ./rendered:/etc/json:ro
+    networks: [back]
+
+  node:
+    image: prom/node-exporter:v1.8.2
+    container_name: broker-node
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|run|var/lib/docker/.+)($$|/)'
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks: [back]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: broker-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+    volumes:
+      - ./conf/grafana:/etc/grafana/provisioning/datasources:ro
+      - grafana-data:/var/lib/grafana
+    networks: [back, edge]
+
+networks:
+  back:
+    external: true
+    name: broker-back
+  edge:
+    external: true
+    name: broker-edge
+  site-inside:
+    external: true
+    name: broker-site_inside
+  cms-inside:
+    external: true
+    name: broker-cms_inside
+  terminal-inside:
+    external: true
+    name: broker-terminal_inside
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+  alert-log:

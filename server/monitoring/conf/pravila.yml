@@ -1,0 +1,92 @@
+# Оповещения. Порог и выдержка выбраны так, чтобы уложиться в минуту:
+# сбор раз в 15 с, выдержка 30 с, группировка 10 с — критическое доходит
+# примерно за 45–60 секунд.
+#
+# ПРАВИЛО ОТБОРА: сюда попадает только то, на что ночью стоит проснуться.
+# Оповещение, которое звонит без дела, через неделю перестают читать — и
+# тогда молчит уже всё.
+groups:
+  - name: kriticheskoe
+    rules:
+      - alert: SluzhbaUpala
+        expr: probe_success == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: 'Служба не отвечает: {{ $labels.instance }}'
+          description: 'Проверка {{ $labels.job }} не проходит уже 30 секунд.'
+
+      # Очередь отправки терминала. Она ПРЯМО говорит, доходят ли события
+      # до кабинета: растёт — значит шина недоступна или отвергает.
+      # Ноль здесь норма, единицы на секунду — норма, десятки — нет.
+      # Отдельно от probe_success: тот покрывает только пробы blackbox.
+      # Если умрёт сам сборщик чисел, пробы останутся зелёными, а очередь
+      # и возраст котировок перестанут наблюдаться МОЛЧА.
+      - alert: SborshchikNeOtvechaet
+        expr: up == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: 'Сборщик метрик молчит: {{ $labels.job }} / {{ $labels.instance }}'
+          description: 'Наблюдение за этой частью платформы прекратилось.'
+
+      - alert: OcheredTerminalaRastet
+        expr: terminal_outbox_pending > 20
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'События терминала не уходят: в очереди {{ $value }}'
+          description: 'Кабинет перестаёт узнавать о сделках. Смотреть шину и кредл издателя.'
+
+      # Очередь ПОТРЕБИТЕЛЯ на шине: сообщения есть, а их никто не разбирает.
+      - alert: OcheredKabinetaNeRazbiraetsya
+        expr: rabbit_queue_messages > 50
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'В очереди кабинета копится: {{ $value }} сообщений'
+
+      - alert: PotrebitelyaNaOcheredyNet
+        expr: rabbit_queue_consumers == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'У очереди кабинета НЕТ потребителей'
+          description: 'Консюмер отвалился: события копятся и будут разобраны только после его возврата.'
+
+      # Диск мы теряли до нуля дважды, и оба раза это стоило дня.
+      - alert: MestoNaDiskeKonchaetsya
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'На диске осталось {{ printf "%.1f" $value }} %'
+
+      # Протухший фид выглядит работающим: контейнер Up, график рисуется,
+      # цены старые. Это тот самый отказ, похожий на нормальную работу.
+      - alert: KotirovkiProtuhli
+        expr: terminal_feed_age_seconds > 120 or mds_quotes_fresh == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Котировки не обновляются: {{ $labels.instance }}'
+
+      - alert: ShinaUTerminalaOtklyuchena
+        expr: terminal_bus_enabled == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'У терминала выключена публикация на шину'
+          description: 'События копятся в очереди и до кабинета не дойдут.'
+
+  - name: predupreditelnoe
+    rules:
+      - alert: SertifikatSkoroIstechet
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 14
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          # `div` и `sub` в шаблонах Prometheus НЕТ — это функции Grafana,
+          # и правило с ними не загружается целиком, роняя ВЕСЬ файл правил.
+          # Поймано promtool до выкатки.
+          summary: 'Сертификат {{ $labels.instance }} истекает через {{ humanizeDuration $value }}'
