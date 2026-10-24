@@ -99,11 +99,16 @@ scrape_configs:
       - { target_label: __address__, replacement: 'broker-json:7979' }
 
   # --- 5. Длина очереди шины --------------------------------------------
+  # Основная очередь И ОТБОЙНИК. Отбойник добавлен OPS-40: без него
+  # отбракованное событие копилось бы МОЛЧА — очередь пуста, потребитель
+  # на месте, всё зелено, а события лежат в стороне и никем не читаются.
   - job_name: shina-ocheredi
     metrics_path: /probe
     params: { module: [rabbit] }
     static_configs:
-      - targets: ['http://broker-bus:15672/api/queues/platform/cabinet.terminal-projection']
+      - targets:
+          - 'http://broker-bus:15672/api/queues/platform/cabinet.terminal-projection'
+          - 'http://broker-bus:15672/api/queues/platform/cabinet.terminal-projection.dlq'
     relabel_configs:
       - { source_labels: [__address__], target_label: __param_target }
       - { source_labels: [__param_target], target_label: instance }

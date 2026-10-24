@@ -46,8 +46,20 @@ groups:
         annotations:
           summary: 'В очереди кабинета копится: {{ $value }} сообщений'
 
+      # Отбойник. Любое ненулевое значение — уже событие: туда попадает
+      # только то, что потребитель разобрать не смог. Порога «сколько
+      # можно» здесь нет и быть не должно.
+      - alert: VOtboynikeEstSoobshcheniya
+        expr: rabbit_queue_messages{instance=~".*dlq"} > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'В отбойнике {{ $value }} сообщений — события отброшены и никем не читаются'
+
       - alert: PotrebitelyaNaOcheredyNet
-        expr: rabbit_queue_consumers == 0
+        # Отбойник исключён: у него потребителей нет ПО ЗАМЫСЛУ,
+        # и тревога по нему звонила бы при исправном устройстве.
+        expr: rabbit_queue_consumers{instance!~".*dlq"} == 0
         for: 2m
         labels: { severity: critical }
         annotations:

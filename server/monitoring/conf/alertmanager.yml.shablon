@@ -38,6 +38,11 @@ receivers:
     telegram_configs:
       - bot_token: '${TG_BOT_TOKEN}'
         chat_id: ${TG_CHAT_ID}
+        # Группа в режиме тем: у каждой темы свой идентификатор, и без него
+        # сообщение уходит в тему по умолчанию («General»). Поддержка поля
+        # есть начиная с Alertmanager 0.26; у нас 0.28, проверено
+        # `amtool check-config` до правки, а не после.
+        message_thread_id: ${TG_THREAD_ID}
         api_url: 'https://api.telegram.org'
         send_resolved: true
         message: |
