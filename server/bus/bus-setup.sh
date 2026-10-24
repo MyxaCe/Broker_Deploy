@@ -23,6 +23,7 @@ val() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
 
 SITE_WEB_PASS="$(val BUS_SITE_WEB_PASSWORD)"
 CABINET_PASS="$(val BUS_CABINET_PASSWORD)"
+TERMINAL_PASS="$(val BUS_TERMINAL_PASSWORD)"
 
 ctl() { docker exec "$BUS" rabbitmqctl "$@"; }
 
@@ -40,7 +41,7 @@ echo
 # снятие тегов оставлено безусловным: оно обязано пережить любой способ
 # появления пользователя.
 rc=0
-for pair in "site-web:$SITE_WEB_PASS" "cabinet:$CABINET_PASS"; do
+for pair in "site-web:$SITE_WEB_PASS" "cabinet:$CABINET_PASS" "terminal:$TERMINAL_PASS"; do
     user="${pair%%:*}"; pw="${pair#*:}"
     if [ -z "$pw" ]; then
         echo "НЕ СДЕЛАНО: пароля для $user в .env нет — кредл не заведён"
@@ -57,6 +58,18 @@ done
 # site-web — честный publish-only (OPS-13). configure ПУСТ: релей объявляет
 # обменник пассивно (REL-03), а пассивное объявление прав не требует.
 ctl set_permissions -p "$VHOST" site-web "" '^platform\.events$' "" >/dev/null
+
+# terminal — издатель событий счёта и сделок (TRM-40, OPS-34).
+#
+# `configure` ПУСТ, и это не экономия: обменник терминал объявляет
+# ПАССИВНО, а пассивное объявление прав не требует. Выданный `configure`
+# позволил бы издателю пересоздать обменник — то есть молча подменить
+# топологию, на которой висит чужой потребитель.
+#
+# `read` ПУСТ тоже: издателю нечего читать. Права выводятся из вызовов, а
+# не выдаются про запас — ровно по этому правилу у `site-web` когда-то
+# убрали `administrator`.
+ctl set_permissions -p "$VHOST" terminal "" '^platform\.events$' "" >/dev/null
 
 # cabinet — выведено из того, что делает консюмер, а не выдано про запас
 # (Р-051). `cabinet.terminal-projection` в configure ОСТАЁТСЯ сознательно:
