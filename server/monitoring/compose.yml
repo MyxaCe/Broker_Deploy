@@ -103,6 +103,29 @@ services:
       - /:/host:ro,rslave
     networks: [back]
 
+  # НЕЗАВИСИМЫЙ СВИДЕТЕЛЬ (OPS-41). Сравнивает остаток счёта у терминала
+  # с остатком в проекции кабинета. Все прочие метрики мерят ПУТЬ —
+  # дошло, пусто, жив, — и потерянное событие о деньгах по ним выглядит
+  # успешно обработанным. Эта мерит РЕЗУЛЬТАТ, и читает обе стороны сама,
+  # потому что счётчик внутри потребителя — тот же свидетель, который уже
+  # соврал строкой «applied».
+  svidetel:
+    image: python:3.12-slim
+    container_name: broker-svidetel
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - 'pip install --quiet --disable-pip-version-check psycopg2-binary && python -u /svidetel/svidetel.py'
+    environment:
+      TERMINAL_DSN: postgres://${TERMINAL_DB_USER}:${TERMINAL_DB_PASSWORD}@broker-db-terminal:5432/${TERMINAL_DB_NAME}
+      SITE_DSN: postgres://broker:${SITE_DB_PASSWORD}@broker-db-site:5432/broker_site
+    volumes:
+      - ./svidetel:/svidetel:ro
+    # Свидетель обязан дотянуться до ОБЕИХ баз, а они в своих внутренних
+    # сетях. Наружу базы при этом не выносятся.
+    networks: [back, site-inside, terminal-inside]
+
   grafana:
     image: grafana/grafana:11.4.0
     container_name: broker-grafana

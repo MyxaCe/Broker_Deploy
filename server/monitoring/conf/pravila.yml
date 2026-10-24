@@ -91,8 +91,37 @@ groups:
           summary: 'У терминала выключена публикация на шину'
           description: 'События копятся в очереди и до кабинета не дойдут.'
 
+      # РАСХОЖДЕНИЕ — ТРЕВОГА, А НЕ ПОМЕТКА. Пометка в журнале есть ровно
+      # та форма, в которой потерянное событие о деньгах и прожило бы
+      # незамеченным: запись была, звонка не было.
+      - alert: OstatkiRazoshlis
+        expr: rashozhdenie_balansa_cents != 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Остатки разошлись на {{ $value }} центов: {{ $labels.email }}'
+          description: 'У терминала и в проекции кабинета разные деньги. Событие потеряно либо применено дважды.'
+
+      # Сломавшийся свидетель не должен выглядеть молчащим от того, что
+      # всё хорошо. Отказ проверки отличим от её прохождения.
+      - alert: SvidetelNeSmogProverit
+        expr: svidetel_oshibka == 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Свидетель не смог прочитать одну из сторон — сверка остатков НЕ ВЫПОЛНЯЕТСЯ'
+
   - name: predupreditelnoe
     rules:
+      # Охват объявляется числом: «расхождений нет» при нуле
+      # сопоставленных пар означает «сравнивать было нечего».
+      - alert: SvidetelyuNechegoSravnivat
+        expr: svidetel_sopostavleno == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Свидетелю нечего сравнивать: сопоставленных пар ноль'
+
       - alert: SertifikatSkoroIstechet
         expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 14
         for: 10m

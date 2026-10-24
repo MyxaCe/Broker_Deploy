@@ -12,9 +12,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_ENV="$HERE/../proxy/.env"
 BUS_ENV="$HERE/../bus/.env"
+# Свидетелю нужны кредлы ОБЕИХ баз. Берём их там, где они лежат, —
+# копия здесь была бы третьей правдой о каждом пароле.
+SITE_ENV="$HERE/../site/.env"
+TERM_ENV="$HERE/../terminal/.env"
 OWN_ENV="$HERE/.env"
 
-for f in "$PROXY_ENV" "$BUS_ENV" "$OWN_ENV"; do
+for f in "$PROXY_ENV" "$BUS_ENV" "$SITE_ENV" "$TERM_ENV" "$OWN_ENV"; do
     [ -f "$f" ] || { echo "нет $f — без него подставлять нечего" >&2; exit 1; }
 done
 
@@ -23,7 +27,7 @@ done
 # у файла. `rm -rf` + распаковка = контейнер смотрит в несуществующий
 # каталог, Prometheus теряет ВСЕ правила и молчит, отчитываясь
 # успехом перезагрузки. Поймано на себе 24.10, B-OPS-034.
-set -a; . "$PROXY_ENV"; . "$BUS_ENV"; . "$OWN_ENV"; set +a
+set -a; . "$PROXY_ENV"; . "$BUS_ENV"; . "$SITE_ENV"; . "$TERM_ENV"; . "$OWN_ENV"; set +a
 
 # Кредл management-API шины — в заголовок Basic. Пароль не печатается.
 BUS_BASIC="$(printf '%s:%s' "$BUS_ADMIN_USER" "$BUS_ADMIN_PASSWORD" | base64 -w0)"
@@ -54,4 +58,4 @@ if grep -q '\${' "$HERE/rendered/prometheus.yml" "$HERE/rendered/alertmanager.ym
     exit 1
 fi
 
-exec docker compose --env-file "$OWN_ENV" "$@"
+exec env SITE_DB_PASSWORD="$SITE_DB_PASSWORD" TERMINAL_DB_USER="$TERMINAL_DB_USER" TERMINAL_DB_PASSWORD="$TERMINAL_DB_PASSWORD" TERMINAL_DB_NAME="$TERMINAL_DB_NAME" docker compose --env-file "$OWN_ENV" "$@"

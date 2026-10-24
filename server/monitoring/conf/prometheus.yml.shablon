@@ -115,6 +115,11 @@ scrape_configs:
       - { target_label: __address__, replacement: 'broker-json:7979' }
 
   # --- 6. Машина ---------------------------------------------------------
+  # --- 7. Независимый свидетель: сохранённое против пересчитанного -----
+  - job_name: svidetel
+    static_configs:
+      - targets: ['broker-svidetel:8000']
+
   - job_name: mashina
     static_configs:
       - targets: ['broker-node:9100']
