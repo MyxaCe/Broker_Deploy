@@ -14,9 +14,13 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_ENV="$HERE/../proxy/.env"
+# CMS_API_KEY общий с витриной и CMS и лежит в одном месте — у витрины.
+# Копия здесь была бы второй правдой: разъехавшийся ключ даёт отказ,
+# который выглядит как «CMS не отвечает».
+SITE_ENV="$HERE/../site/.env"
 OWN_ENV="$HERE/.env"
 
-for f in "$PROXY_ENV" "$OWN_ENV"; do
+for f in "$PROXY_ENV" "$SITE_ENV" "$OWN_ENV"; do
     [ -f "$f" ] || { echo "нет $f — без него подставлять нечего" >&2; exit 1; }
 done
 
@@ -30,4 +34,4 @@ case "$REV" in
 esac
 
 exec env TERMINAL_REVISION="$REV" docker compose \
-    --env-file "$PROXY_ENV" --env-file "$OWN_ENV" "$@"
+    --env-file "$PROXY_ENV" --env-file "$SITE_ENV" --env-file "$OWN_ENV" "$@"

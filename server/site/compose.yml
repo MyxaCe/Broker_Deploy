@@ -50,10 +50,14 @@ services:
       NEXT_PUBLIC_SITE_URL: https://${DOMAIN}
       NEXT_PUBLIC_CABINET_URL: https://cabinet.${DOMAIN}
       NEXT_PUBLIC_TERMINAL_URL: https://terminal.${DOMAIN}
-      # ПУСТО СОЗНАТЕЛЬНО, и это законный режим, а не недосмотр: сервера
-      # котировок у нас нет. Пустой адрес фида означает «живого источника
-      # нет». Переменная объявлена `optional` в самом образе — требовать её
-      # значило бы запретить запуск без MDS.
+      # ПУСТО, И ТЕПЕРЬ ЭТО ЗНАЧИТ ДРУГОЕ, ЧЕМ ДО OPS-28.
+      # Это адрес MDS ДЛЯ БРАУЗЕРА (socket.io и иконки), а MDS по решению
+      # штаба наружу не выставлен и имени в прокси не имеет. Значит живой
+      # поток до браузера не доходит, и служба подставляет мок — но
+      # ОБЪЯВЛЯЯ его: подлинность решается наличием адреса источника, и
+      # статус принудительно становится `simulated` (КОНТРАКТЫ §5г).
+      # Серверная сторона при этом настоящая: каталог и состояние
+      # котировок берутся по MDS_HTTP_URL ниже.
       NEXT_PUBLIC_WS_URL: ''
       # --- Серверная сторона ------------------------------------------------
       DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
@@ -66,8 +70,8 @@ services:
       # получала бы 403 и считала CMS сломанной.
       CMS_API_URL: http://broker-cms:3001/v1
       CMS_API_KEY: ${CMS_API_KEY}
-      # MDS_HTTP_URL НЕ ЗАДАН СОЗНАТЕЛЬНО: сервера котировок нет. Адрес в
-      # никуда дал бы «сосед недоступен» там, где правда — «соседа нет».
+      # Каталог и состояние котировок — СЕРВЕРНОЙ стороной (OPS-28).
+      MDS_HTTP_URL: http://broker-mds:3003
     depends_on:
       db:
         condition: service_healthy
@@ -87,6 +91,7 @@ services:
       DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
       SITE_SLUG: apex-ru
       UPLOAD_DIR: /app/uploads
+      MDS_HTTP_URL: http://broker-mds:3003
       CMS_API_URL: http://broker-cms:3001/v1
       CMS_API_KEY: ${CMS_API_KEY}
       # Адрес терминала ДЛЯ ПРОЦЕССА, не для браузера (CAB-09). История

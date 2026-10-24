@@ -91,9 +91,10 @@ services:
       SITE_WEBHOOK_URL: http://broker-web:3000/api/revalidate
       SITE_WEBHOOK_SECRET: ${CMS_WEBHOOK_SECRET}
       SITE_PREVIEW_SECRET: ${PREVIEW_SECRET}
-      # MDS_HTTP_URL НЕ ЗАДАН: сервера котировок нет. Поле выбора
-      # инструментов в админке останется без вселенной — это видно на
-      # экране и чинится появлением MDS, а не адресом в никуда.
+      # Вселенная инструментов для поля выбора в админке (OPS-28).
+      # Админка зовёт /v1/instruments и /icons/* через свой прокси
+      # admin-mds — это публичные ручки, служебный токен им не нужен.
+      MDS_HTTP_URL: http://broker-mds:3003
     volumes:
       - media:/app/media
     depends_on:
