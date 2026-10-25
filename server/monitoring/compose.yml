@@ -126,6 +126,34 @@ services:
     # сетях. Наружу базы при этом не выносятся.
     networks: [back, site-inside, terminal-inside]
 
+  # ЦВЕТ СОБСТВЕННОГО ПРОГОНА ЗОНЫ (B-OPS-038). CI зоны `deploy`
+  # простоял красным восемь прогонов, и не заметил этого я сам: из этой
+  # зоны образы не собираются, значит прогон ничего не задерживал, а
+  # проверка, которая никого не блокирует, не напоминает о себе ничем.
+  #
+  # Запрет был бы сильнее звонка, но болезнь была про тишину. Запрет
+  # придёт после того, как скрипты зоны научатся называть свою ревизию:
+  # сегодня гейт на их выкатку отвечал бы про чужой коммит.
+  #
+  # Опрашивает раз в десять минут, а не на каждый сбор: анонимный предел
+  # GitHub — 60 запросов в час НА АДРЕС, а выход у зон общий.
+  ci-cvet:
+    image: python:3.12-slim
+    container_name: broker-ci-cvet
+    restart: unless-stopped
+    command: ['python', '-u', '/ci-cvet/ci-cvet.py']
+    environment:
+      CI_REPO: ${CI_REPO}
+      CI_VETKA: ${CI_VETKA}
+      CI_PROCESS: ${CI_PROCESS:-ci.yml}
+      CI_INTERVAL_SEK: ${CI_INTERVAL_SEK:-600}
+      # Токена у владельца пока нет; без него работает анонимно и
+      # говорит остаток предела метрикой. Пустое значение — законно.
+      CI_TOKEN: ${CI_TOKEN:-}
+    volumes:
+      - ./ci-cvet:/ci-cvet:ro
+    networks: [back]
+
   grafana:
     image: grafana/grafana:11.4.0
     container_name: broker-grafana

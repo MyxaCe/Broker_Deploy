@@ -59,6 +59,15 @@ chown 65534:65534 "$HERE/rendered/json-exporter.yml" "$HERE/rendered/alertmanage
 chmod 600 "$HERE/rendered/json-exporter.yml" "$HERE/rendered/alertmanager.yml"
 chmod 644 "$HERE/rendered/prometheus.yml"
 
+# Сторожу цвета прогона нужно знать, ЧЕЙ прогон сторожить. Пустое
+# значение дало бы службу, которая вечно отвечает ошибкой и выглядит
+# сломанной, а не ненастроенной, — разницу между этими двумя мы сегодня
+# разбирали весь день.
+for v in CI_REPO CI_VETKA; do
+    eval "z=\${$v:-}"
+    [ -n "$z" ] || { echo "в $OWN_ENV нет $v — неизвестно, чей прогон сторожить" >&2; exit 1; }
+done
+
 # Гейт: незаполненный шаблон не должен уехать в работу молча.
 if grep -q '\${' "$HERE/rendered/prometheus.yml" "$HERE/rendered/alertmanager.yml"; then
     echo "в отрендеренных конфигах осталась неподставленная переменная:" >&2

@@ -120,6 +120,13 @@ scrape_configs:
     static_configs:
       - targets: ['broker-svidetel:8000']
 
+  # --- 8. Цвет собственного прогона зоны (B-OPS-038) --------------------
+  # Проверка, которая никого не блокирует, не напоминает о себе ничем.
+  # Здесь она начинает напоминать: красный CI зоны становится тревогой.
+  - job_name: ci-cvet
+    static_configs:
+      - targets: ['broker-ci-cvet:8000']
+
   - job_name: mashina
     static_configs:
       - targets: ['broker-node:9100']
