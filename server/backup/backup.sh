@@ -90,7 +90,13 @@ done
 # переименованием, поэтому tar на лету целостен по объектам. Останавливать
 # MinIO ради снимка не требуется. Это согласуется с тем, как зона уже
 # бэкапит media/uploads локального контура.
-VOL_ARCHIVE="broker-site_minio-data broker-site_cabinet-uploads broker-cms_media"
+#
+# `broker-vault_vault-data` — том OpenBao (raft/BoltDB). Добавлен сюда при
+# сведении с живым стендом (OPS-24): правка жила на машине со времён Р-456 B,
+# а в репозитории её не было. Данные в томе зашифрованы барьером Vault, но
+# горячий tar BoltDB может быть не полностью согласован — честнее `bao operator
+# raft snapshot` отдельным шагом; вынесено в долг (см. proposed/vault/README.md).
+VOL_ARCHIVE="broker-site_minio-data broker-site_cabinet-uploads broker-cms_media broker-vault_vault-data"
 for v in $VOL_ARCHIVE; do
     docker volume inspect "$v" >/dev/null 2>&1 \
         || { log "  том $v: на машине нет — пропуск"; continue; }

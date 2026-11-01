@@ -1,0 +1,32 @@
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: broker-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+      ADMIN_IP: ${ADMIN_IP}
+    networks:
+      # proxy_default оставлен как был. `edge` добавлена OPS-24: прокси должен
+      # дотянуться до приложений по имени контейнера, а приложения не
+      # публикуют портов вовсе. Сеть ВНЕШНЯЯ и заводится до подъёма стеков —
+      # иначе каждый стек создавал бы свою и соседи друг друга не видели бы.
+      - default
+      - edge
+networks:
+  edge:
+    external: true
+    name: broker-edge
+volumes:
+  # Здесь лежат выданные сертификаты и ключи учётной записи. Том восстановим
+  # (сертификаты перевыпустятся), но при частых пересозданиях упрёмся в
+  # ограничение центра сертификации на число выдач. Беречь.
+  caddy-data:
+  caddy-config:
