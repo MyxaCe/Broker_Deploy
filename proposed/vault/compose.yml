@@ -1,0 +1,52 @@
+# Хранилище секретов — OpenBao (форк Vault, Apache-2.0), стенд. Р-456 B.
+#
+# ОБРАЗ ПО ДАЙДЖЕСТУ, не :latest (урок прод-CRM: :latest => версия
+# неустановима). ПОРТОВ НАРУЖУ НЕТ: UI/API доступен только изнутри
+# broker-back. Хранилище raft (integrated storage). Том vault-data
+# внесён в бэкап-набор зоны (VOL_ARCHIVE в /srv/broker/backup/backup.sh)
+# как broker-vault_vault-data.
+#
+# Запуск:   docker compose up -d
+# Статус:   docker exec broker-vault bao status -address=http://127.0.0.1:8200
+#
+# Ключи распечатывания и root-токен init'ом НЕ попадают ни сюда, ни в
+# репозиторий. См. README.md, раздел «Распечатывание и custody».
+
+name: broker-vault
+
+services:
+  openbao:
+    image: openbao/openbao@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f  # openbao/openbao:2.7.2
+    container_name: broker-vault
+    restart: unless-stopped
+    # entrypoint сам добавляет -config=/openbao/config (BAO_CONFIG_DIR) и
+    # грузит оттуда config.hcl. Свой -config НЕ передаём — иначе дубль загрузки.
+    command: ["server"]
+    # IPC_LOCK СНЯТ: OpenBao 2.7 убрал поддержку mlock (upstream), capability
+    # больше не нужна. Спека просила IPC_LOCK под mlock — требование устарело
+    # вместе с mlock; защита от свопа секретов делается на хосте (см. config.hcl).
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+    volumes:
+      - vault-data:/openbao/data
+      - ./config.hcl:/openbao/config/config.hcl:ro
+    # НЕТ ports: наружу не выставляем. Только сеть broker-back.
+    networks:
+      - back
+    healthcheck:
+      # `bao status`: 0 — распечатан, 2 — запечатан (оба = процесс жив),
+      # 1 — недоступен. Запечатанный узел считаем healthy: это рабочее
+      # состояние до распечатывания, а не отказ.
+      test: ["CMD-SHELL", "bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || [ $? -eq 2 ]"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  back:
+    external: true
+    name: broker-back
+
+volumes:
+  vault-data:

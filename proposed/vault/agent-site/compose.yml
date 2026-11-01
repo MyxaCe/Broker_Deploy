@@ -1,0 +1,39 @@
+# Vault Agent витрины/кабинета — отдельный маленький стек.
+#
+# ПОЧЕМУ ОТДЕЛЬНЫЙ, А НЕ СЕРВИС ВНУТРИ broker-site: compose.sh витрины
+# проверяет существование всех --env-file ДО запуска compose. Если бы агент,
+# рендерящий .env.kyc, жил внутри того же compose, на первом `up` файла ещё
+# не было бы — курица и яйцо. Отдельный стек рендерит файл независимо от
+# жизненного цикла витрины; витрина лишь читает готовый файл (а нет файла —
+# compose.sh берёт базовый .env, fallback).
+#
+# Образ — тот же OpenBao по дайджесту (в нём есть и `bao agent`).
+# Рендерит в /srv/broker/site/.env.kyc (bind-mount), права 0600.
+
+name: broker-vault-agent
+
+services:
+  agent-site:
+    image: openbao/openbao@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f  # openbao/openbao:2.7.2
+    container_name: broker-vault-agent-site
+    restart: unless-stopped
+    command: ["agent", "-config=/agent/agent.hcl"]
+    volumes:
+      - ./agent.hcl:/agent/agent.hcl:ro
+      # role_id/secret_id лежат ВНЕ /srv/broker (его целиком тарит бэкап):
+      # так материал AppRole не попадает в снимок. Права 600, uid openbao(100).
+      - /root/openbao-agent-site/roleid:/agent/roleid:ro
+      - /root/openbao-agent-site/secretid:/agent/secretid:ro
+      # Выделенный каталог рендера, владелец uid openbao(100) — агент пишет
+      # сюда .env.kyc (0600). compose.sh витрины (работает под root) читает
+      # этот файл как дополнительный --env-file. Каталог НЕ в /srv/broker/site
+      # (root-only), потому что рендер идёт от uid 100.
+      - /srv/broker/vault/rendered:/render
+    networks:
+      - back
+    depends_on: []
+
+networks:
+  back:
+    external: true
+    name: broker-back
