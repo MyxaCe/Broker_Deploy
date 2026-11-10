@@ -6,3 +6,5 @@
 *.sh text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+# Ячейки платформ: python, фрагменты Caddy, анкеты и ts-сид исполняются на Linux.
+server/cells/** text eol=lf

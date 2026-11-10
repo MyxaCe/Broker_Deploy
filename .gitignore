@@ -15,3 +15,6 @@ target/
 coverage/
 .turbo/
 *.log
+
+# Локальный хаб проверки ячеек (секреты хаба, экземпляры ячеек)
+server/cells/test/.hub/

@@ -1,0 +1,112 @@
+# ЛОКАЛЬНЫЙ ХАБ ДЛЯ ПРОВЕРКИ ЯЧЕЙКИ (Docker Desktop). НЕ для стенда.
+#
+# Повторяет хаб стенда в той части, которую ячейка трогает: CMS legacy той же
+# ревизии (485061e), MDS той же ревизии, шина (тот же образ RabbitMQ), прокси
+# (тот же Caddy). Имена контейнеров и сетей — `cellt-*`, чтобы не задеть
+# ничего на машине разработчика. ПОРТОВ НАРУЖУ НЕТ НИ ОДНОГО: проверка идёт
+# `docker exec` и контейнером-клиентом в той же сети.
+#
+# Поднимается через test/local-hub.sh (он же генерирует секреты хаба).
+
+name: cellt-hub
+
+services:
+  cms-db:
+    image: postgres:16-alpine
+    container_name: cellt-db-cms
+    environment:
+      POSTGRES_USER: cms
+      POSTGRES_PASSWORD: ${CMS_DB_PASSWORD:?}
+      POSTGRES_DB: broker_cms
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cms -d broker_cms']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [inside]
+
+  cms-migrate:
+    image: ghcr.io/myxace/broker-cms-migrate:485061e4b90cbf68aa42df756dbfe5b512210177
+    container_name: cellt-cms-migrate
+    restart: 'no'
+    command: [sh, -c, 'pnpm payload migrate && NODE_ENV=production DEFAULT_SITE=apex-ru pnpm seed']
+    environment:
+      DATABASE_URL: postgres://cms:${CMS_DB_PASSWORD}@cms-db:5432/broker_cms
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET:?}
+      DEFAULT_SITE: apex-ru
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?}
+      SEED_EDITOR_EMAIL: editor@cellt.example.com
+      SEED_EDITOR_PASSWORD: ${SEED_ADMIN_PASSWORD}
+    depends_on:
+      cms-db: {condition: service_healthy}
+    networks: [inside]
+
+  cms:
+    image: ghcr.io/myxace/broker-cms:485061e4b90cbf68aa42df756dbfe5b512210177
+    container_name: cellt-cms
+    environment:
+      DATABASE_URL: postgres://cms:${CMS_DB_PASSWORD}@cms-db:5432/broker_cms
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      CMS_API_KEY: ${CMS_API_KEY:?}
+      DEFAULT_SITE: apex-ru
+      CMS_PUBLIC_URL: https://cms.cellt.test
+      SITE_URL: https://cellt.test
+      SITE_WEBHOOK_URL: http://cellt-nowhere:3000/api/revalidate
+      SITE_WEBHOOK_SECRET: ${CMS_WEBHOOK_SECRET:?}
+      SITE_PREVIEW_SECRET: ${PREVIEW_SECRET:?}
+      MDS_HTTP_URL: http://cellt-mds:3003
+    depends_on:
+      cms-db: {condition: service_healthy}
+      cms-migrate: {condition: service_completed_successfully}
+    networks: [inside, back]
+
+  mds:
+    image: ghcr.io/myxace/broker-mds:94611015824a734f0e44705914df0d25b9af725d
+    container_name: cellt-mds
+    environment:
+      PORT: '3003'
+      BATCH_MS: '250'
+      BINANCE_WS_URL: wss://stream.binance.com:9443
+      QUOTE_STALE_AFTER_MS: '60000'
+      MDS_ROUTING_RECHECK_MS: '5000'
+      MDS_REGISTRY_PATH: /app/data/providers.json
+    networks: [back, edge]
+
+  bus:
+    image: rabbitmq:3.13-management-alpine
+    container_name: cellt-bus
+    hostname: cellt-bus
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BUS_ADMIN_USER:?}
+      RABBITMQ_DEFAULT_PASS: ${BUS_ADMIN_PASSWORD:?}
+      RABBITMQ_DEFAULT_VHOST: platform
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'check_running']
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks: [back]
+
+  proxy:
+    image: caddy:2.10-alpine
+    container_name: cellt-proxy
+    # Портов нет. Проверка маршрутов — curl-контейнером в сети edge.
+    volumes:
+      - ${HUB_DIR:?}/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${HUB_DIR}/proxy/sites:/etc/caddy/sites:ro
+    environment:
+      DOMAIN: cellt.test
+      ADMIN_IP: ${ADMIN_IP:?}
+    networks: [edge]
+
+networks:
+  inside:
+    driver: bridge
+  edge:
+    external: true
+    name: cellt-edge
+  back:
+    external: true
+    name: cellt-back

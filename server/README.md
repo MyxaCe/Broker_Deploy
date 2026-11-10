@@ -23,6 +23,7 @@
 | `server/backup/restore-check.sh` | `backup/restore-check.sh` | проверка восстановлением |
 | `server/backup/wait-pg.sh` | `backup/wait-pg.sh` | — |
 | `proposed/vault/*` | `vault/*` | OpenBao, `proposed/vault/README.md` |
+| `server/cells/*` | `cells/*` | ячейки платформ (новая платформа = новая ячейка), `server/cells/README.md`; **на стенд ещё не выкачено** |
 
 ## Секретов в репозитории нет
 
