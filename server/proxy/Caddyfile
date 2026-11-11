@@ -99,7 +99,7 @@ cms.{$DOMAIN} {
 # (там шире — CMS), а один адрес. Fail-closed и на уровне приложения
 # (ADMIN_SESSION_SECRET + гейт сессии), и здесь по IP — defense in depth.
 admin.{$DOMAIN} {
-	@blocked not remote_ip <IP-оператора-1> <IP-оператора-2> <IP-оператора-3>
+	@blocked not remote_ip <IP-оператора-1> <IP-оператора-2> <IP-оператора-3> <IP-оператора-4>
 	respond @blocked "Dostup ogranichen" 403
 	reverse_proxy broker-admin:3005
 }
