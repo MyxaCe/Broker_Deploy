@@ -69,9 +69,14 @@ services:
       CMS_API_KEY: ${CMS_API_KEY}
       # Каталог и состояние котировок — СЕРВЕРНОЙ стороной (OPS-28).
       MDS_HTTP_URL: http://broker-mds:3003
+      # Волна 3: атрибуция (рефералы/акции) общая для витрины и кабинета
+      ATTRIBUTION_COOKIE_DOMAIN: .${DOMAIN}
     depends_on:
       db:
         condition: service_healthy
+    # Волна 3: последняя удачная версия CMS переживает деплой
+    volumes:
+      - web-next-cache:/app/apps/web/.next/cache
     # `back` добавлена OPS-27: по ней витрина ходит в CMS. `edge` — путь
     # снаружи внутрь, трафику между приложениями там не место.
     networks: [inside, edge, back]
@@ -87,6 +92,15 @@ services:
       NEXT_PUBLIC_WS_URL: https://${DOMAIN}
       DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
       SITE_SLUG: apex-ru
+      # ДЕМО-волна 09.11: деньги реального счёта через внутренние ручки терминала (сеть back)
+      TERMINAL_INTERNAL_URL: http://broker-terminal-gateway:8080
+      INTERNAL_MONEY_TOKEN: ${INTERNAL_MONEY_TOKEN}
+      EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}
+      # Волна 3: ссылки в письмах, вход в терминал верхним уровнем, атрибуция
+      CABINET_PUBLIC_URL: https://cabinet.${DOMAIN}
+      TERMINAL_ORIGINS: https://terminal.${DOMAIN}
+      TERMINAL_TOP_LEVEL: "0"
+      ATTRIBUTION_COOKIE_DOMAIN: .${DOMAIN}
       UPLOAD_DIR: /app/uploads
       MDS_HTTP_URL: http://broker-mds:3003
       CMS_API_URL: http://broker-cms:3001/v1
@@ -162,7 +176,7 @@ services:
   # --- Центр управления (ADM-01) --------------------------------------
   # Отдельная операторская поверхность (Р-395), fail-closed без
   # ADMIN_SESSION_SECRET (Р-394). Снаружи — только admin.{DOMAIN} за
-  # гейтом Caddy (allow 2.58.66.92, вход через Tailscale/mgmt-vdc1).
+  # гейтом Caddy (allow <IP-оператора-1>, вход через Tailscale/mgmt-vdc1).
   admin:
     image: ghcr.io/myxace/broker-admin:${SITE_REVISION}
     container_name: broker-admin
@@ -172,13 +186,21 @@ services:
       # --- KYC object storage (ADM-12 / Р-454 II-1) ---------------------
       # S3-совместимое хранилище (MinIO на стенде). Endpoint ВНУТРЕННИЙ
       # (сеть inside), path-style как требует MinIO. Секреты из .env (цель Vault).
-      S3_ENDPOINT: https://files.wholesalefy.com
+      S3_ENDPOINT: https://files.<домен>
       S3_REGION: us-east-1
       S3_BUCKET: ${S3_BUCKET}
       S3_FORCE_PATH_STYLE: "true"
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
       DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
+      # ДЕМО-волна 09.11: деньги реального счёта через внутренние ручки терминала (сеть back)
+      TERMINAL_INTERNAL_URL: http://broker-terminal-gateway:8080
+      INTERNAL_MONEY_TOKEN: ${INTERNAL_MONEY_TOKEN}
+      EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}
+      SITE_SLUG: apex-ru
+      CABINET_PUBLIC_URL: https://cabinet.${DOMAIN}
+      # Волна 4: подпись межплатформенных переводов (Ed25519, своя у каждой ячейки)
+      PLATFORM_TRANSFER_SIGNING_KEY_PEM_B64: ${PLATFORM_TRANSFER_SIGNING_KEY_PEM_B64}
     depends_on:
       db:
         condition: service_healthy
@@ -189,6 +211,57 @@ services:
   # Образ — РЕАЛЬНЫЙ MinIO (сборка Bitnami, namespace bitnamilegacy), запинен
   # по ДАЙДЖЕСТУ, не :latest (урок прод-CRM: :latest => версия неустановима).
   # S3-порт 9000 наружу НЕ проброшен (только сеть inside); консоль не публикуется.
+  # --- Наблюдатель сети TRON (USDT TRC20), ДЕМО-волна 09.11 -------------
+  # Ключей нет: кошелёк биржи только наблюдается. Профиль chain — сервис не
+  # стартует обычным up, пока владелец не дал адрес кошелька и ключ TronGrid:
+  #   ./compose.sh --profile chain up -d chain-watcher
+  chain-watcher:
+    image: ghcr.io/myxace/broker-chain-watcher:${SITE_REVISION}
+    container_name: broker-chain-watcher
+    restart: unless-stopped
+    profiles: [chain]
+    environment:
+      DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
+      SITE_SLUG: apex-ru
+      EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}
+      TERMINAL_INTERNAL_URL: http://broker-terminal-gateway:8080
+      INTERNAL_MONEY_TOKEN: ${INTERNAL_MONEY_TOKEN}
+      TRONGRID_API_KEY: ${TRONGRID_API_KEY}
+      POLL_INTERVAL_MS: "15000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [inside, back]
+
+  # --- Почта поддержки (волна 3): IMAP support@ → тикеты, outbound_mail → SMTP
+  support-mail:
+    image: ghcr.io/myxace/broker-support-mail:${SITE_REVISION}
+    container_name: broker-support-mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
+      SITE_SLUG: apex-ru
+      SUPPORT_MAIL_ADDRESS: ${SUPPORT_MAIL_ADDRESS}
+      SUPPORT_SMTP_HOST: ${SUPPORT_SMTP_HOST}
+      SUPPORT_SMTP_PORT: ${SUPPORT_SMTP_PORT}
+      SUPPORT_SMTP_USER: ${SUPPORT_SMTP_USER}
+      SUPPORT_SMTP_PASSWORD: ${SUPPORT_SMTP_PASSWORD}
+      SUPPORT_IMAP_HOST: ${SUPPORT_IMAP_HOST}
+      SUPPORT_IMAP_PORT: ${SUPPORT_IMAP_PORT}
+      SUPPORT_IMAP_USER: ${SUPPORT_IMAP_USER}
+      SUPPORT_IMAP_PASSWORD: ${SUPPORT_IMAP_PASSWORD}
+      SUPPORT_SEND_PER_HOUR: ${SUPPORT_SEND_PER_HOUR}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: ${S3_BUCKET}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [inside]
+
   minio:
     image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
     container_name: broker-minio
@@ -216,6 +289,7 @@ networks:
     name: broker-back
 
 volumes:
+  web-next-cache:
   db-data:
   cabinet-uploads:
   minio-data:

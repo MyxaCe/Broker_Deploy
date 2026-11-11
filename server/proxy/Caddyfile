@@ -94,12 +94,12 @@ cms.{$DOMAIN} {
 	reverse_proxy broker-cms:3001
 }
 
-# Центр управления (ADM-01). Вход ТОЛЬКО с 2.58.66.92 — выход Tailscale
+# Центр управления (ADM-01). Вход ТОЛЬКО с <IP-оператора-1> — выход Tailscale
 # mgmt-vdc1 (решение IT). Это денежный control plane: не общий ADMIN_IP
 # (там шире — CMS), а один адрес. Fail-closed и на уровне приложения
 # (ADMIN_SESSION_SECRET + гейт сессии), и здесь по IP — defense in depth.
 admin.{$DOMAIN} {
-	@blocked not remote_ip 2.58.66.92 93.171.138.87 176.105.201.217
+	@blocked not remote_ip <IP-оператора-1> <IP-оператора-2> <IP-оператора-3>
 	respond @blocked "Dostup ogranichen" 403
 	reverse_proxy broker-admin:3005
 }
