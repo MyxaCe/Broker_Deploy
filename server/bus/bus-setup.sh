@@ -12,6 +12,7 @@ val() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
 
 SITE_WEB_PASS="$(val BUS_SITE_WEB_PASSWORD)"
 CABINET_PASS="$(val BUS_CABINET_PASSWORD)"
+TERMINAL_PASS="$(val BUS_TERMINAL_PASSWORD)"
 
 ctl() { docker exec "$BUS" rabbitmqctl "$@"; }
 
@@ -23,7 +24,7 @@ ctl list_permissions -p "$VHOST" 2>/dev/null | tail -n +2
 echo
 
 rc=0
-for pair in "site-web:$SITE_WEB_PASS" "cabinet:$CABINET_PASS"; do
+for pair in "site-web:$SITE_WEB_PASS" "cabinet:$CABINET_PASS" "terminal:$TERMINAL_PASS"; do
     user="${pair%%:*}"; pw="${pair#*:}"
     if [ -z "$pw" ]; then
         echo "НЕ СДЕЛАНО: пароля для $user в .env нет — кредл не заведён"
@@ -37,6 +38,8 @@ for pair in "site-web:$SITE_WEB_PASS" "cabinet:$CABINET_PASS"; do
 done
 
 ctl set_permissions -p "$VHOST" site-web "" '^platform\.events$' "" >/dev/null
+
+ctl set_permissions -p "$VHOST" terminal "" '^platform\.events$' "" >/dev/null
 
 ctl set_permissions -p "$VHOST" cabinet \
     '^cabinet\.terminal-projection$' \

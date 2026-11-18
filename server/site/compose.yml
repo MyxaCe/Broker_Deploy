@@ -113,7 +113,7 @@ services:
     restart: unless-stopped
     environment:
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
-      S3_ENDPOINT: https://files.<домен>
+      S3_ENDPOINT: https://files.${DOMAIN}
       S3_REGION: us-east-1
       S3_BUCKET: ${S3_BUCKET}
       S3_FORCE_PATH_STYLE: "true"
