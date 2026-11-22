@@ -36,6 +36,7 @@ services:
       CMS_API_URL: http://broker-cms:3001/v1
       CMS_API_KEY: ${CMS_API_KEY}
       MDS_HTTP_URL: http://broker-mds:3003
+      STATUS_PROMETHEUS_URL: ${STATUS_PROMETHEUS_URL-http://broker-prometheus:9090}
       ATTRIBUTION_COOKIE_DOMAIN: .${DOMAIN}
     depends_on:
       db:

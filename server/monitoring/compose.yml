@@ -8,7 +8,8 @@ services:
     command:
       - '--config.file=/etc/prometheus/rendered/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.time=100d'
+      - '--storage.tsdb.retention.size=8GB'
       - '--web.enable-lifecycle'
     volumes:
       - ./rendered:/etc/prometheus/rendered:ro
