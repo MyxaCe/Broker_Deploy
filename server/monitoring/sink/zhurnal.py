@@ -1,10 +1,3 @@
-"""Приёмник оповещений до появления адресата.
-
-Пишет каждое оповещение в журнал контейнера И в файл на томе. Нужен он не
-как заглушка: без него «оповещения настроены» проверялось бы чтением
-конфигурации, а не срабатыванием. С ним путь правило → Alertmanager →
-получатель пройден целиком и его можно показать.
-"""
 import datetime, json, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -31,7 +24,6 @@ class Priyomnik(BaseHTTPRequestHandler):
                 with open(FILE, "a", encoding="utf-8") as f:
                     f.write(stroka + "\n")
             except OSError as e:
-                # Не глушим: файл недоступен — это отказ приёмника, а не фон.
                 print("ПРИЁМНИК НЕ СМОГ ЗАПИСАТЬ В ФАЙЛ: %s" % e, file=sys.stderr, flush=True)
         self.send_response(200)
         self.end_headers()
