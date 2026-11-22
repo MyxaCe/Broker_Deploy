@@ -75,6 +75,8 @@ services:
       # Изменение SL/TP у открытой позиции и отложенного ордера (17.11, 953dc59).
       # После первой записи откат терминала — не ниже 953dc59.
       SLTP_EDIT_ENABLED: "1"
+      BINANCE_API_URL: ${MARKET_API_URL:-https://api.binance.com}
+      BINANCE_WS_URL: ${MARKET_WS_URL:-wss://stream.binance.com:9443}
       # Адрес кабинета, откуда шлюз берёт JWKS для проверки handoff-JWT.
       # СЕГОДНЯ ИНЕРТЕН: при SSO_DISABLED=1 шлюз сессий не спрашивает.
       # Задан, чтобы включение режима было правкой ОДНОЙ переменной, а не
@@ -135,8 +137,21 @@ services:
       # сконфигурирована наполовину» и источник не использует.
       CMS_BASE_URL: http://broker-cms:3001/v1
       CMS_API_KEY: ${CMS_API_KEY}
+      # ВОЛНА 2 (22.11, terminal-instruments-v2). Модуль v2 — та же база с
+      # ключом в пути, что у v1. Секрет вебхука CMS читается из cms/.env
+      # (compose.sh), копии здесь нет. Список платформы и метаданные
+      # инструментов кешируются на томе gateway-data.
+      MARKET_V2_API_URL: ${MARKET_API_URL}
+      MARKET_V2_WS_URL: ${MARKET_WS_URL}
+      CMS_WEBHOOK_SECRET: ${PLATFORM_INSTRUMENTS_WEBHOOK_SECRET}
+      PLATFORM_INSTRUMENTS_CACHE: /data/platform-instruments.json
+      # Шаг 2 выполнен 22.11 (1): после первой записи
+      # откат терминала — не ниже 75399fc.
+      CLOSE_ONLY_REJECT_PENDING_ENABLED: "1"
       # TENANT_INSTRUMENTS не задан: это запасной источник списка файлом, и
       # при живой CMS он был бы вторым источником правды.
+    volumes:
+      - gateway-data:/data
     depends_on:
       db:
         condition: service_healthy
@@ -195,3 +210,4 @@ networks:
 
 volumes:
   pgdata:
+  gateway-data:

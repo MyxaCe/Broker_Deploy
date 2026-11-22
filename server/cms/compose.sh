@@ -14,7 +14,8 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_ENV="$HERE/../proxy/.env"
-# Общие с витриной секреты: CMS_API_KEY, CMS_WEBHOOK_SECRET, PREVIEW_SECRET.
+# Общие с витриной секреты: CMS_API_KEY, CMS_WEBHOOK_SECRET, PREVIEW_SECRET,
+# INTERNAL_MONEY_TOKEN.
 # Их читают ОБА стека, и лежат они в одном месте. Скопировать их сюда
 # значило бы завести вторую правду: разъехавшаяся пара ключей даёт отказ,
 # который выглядит как «CMS не отвечает».

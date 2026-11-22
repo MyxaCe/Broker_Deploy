@@ -49,6 +49,7 @@ services:
       # --- Публичные адреса: подставляются в сборку при старте -------------
       NEXT_PUBLIC_SITE_URL: https://${DOMAIN}
       NEXT_PUBLIC_CABINET_URL: https://cabinet.${DOMAIN}
+      CALENDAR_API_URL: ${CALENDAR_API_URL}
       NEXT_PUBLIC_TERMINAL_URL: https://terminal.${DOMAIN}
       # Адрес MDS ДЛЯ БРАУЗЕРА: socket.io и иконки инструментов (OPS-29).
       # Это ORIGIN, а не origin с префиксом: драйвер зовёт `io(url)` без
@@ -196,6 +197,8 @@ services:
       # ДЕМО-волна 09.11: деньги реального счёта через внутренние ручки терминала (сеть back)
       TERMINAL_INTERNAL_URL: http://broker-terminal-gateway:8080
       INTERNAL_MONEY_TOKEN: ${INTERNAL_MONEY_TOKEN}
+      MONEY_SIGNING_KEY_PEM_B64: ${MONEY_SIGNING_KEY_PEM_B64}
+      MONEY_BOOTSTRAP_MODE: ${MONEY_BOOTSTRAP_MODE}
       EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}
       SITE_SLUG: apex-ru
       CABINET_PUBLIC_URL: https://cabinet.${DOMAIN}

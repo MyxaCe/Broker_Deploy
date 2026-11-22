@@ -1,0 +1,37 @@
+# Съём ЧИСЕЛ ИЗ ОТВЕТА, а не «порт отвечает». Рендерится из шаблона:
+# кредл шины живёт у шины, и копия здесь была бы второй правдой.
+modules:
+  terminal:
+    metrics:
+      - name: terminal_outbox_pending
+        path: '{ .outbox_pending }'
+        help: 'Событий ждёт отправки на шину'
+      - name: terminal_feed_age_seconds
+        path: '{ .feed_age_secs }'
+        help: 'Возраст последней котировки, секунд'
+      - name: terminal_priced_instruments
+        path: '{ .priced_instruments }'
+      - name: terminal_bus_enabled
+        path: '{ .bus }'
+        valuetype: gauge
+      - name: terminal_sso_enabled
+        path: '{ .sso }'
+  mds:
+    metrics:
+      - name: mds_quotes_fresh
+        path: '{ .quotes.fresh }'
+        help: 'Сколько котировок свежее порога'
+      - name: mds_quotes_total
+        path: '{ .quotes.total }'
+      - name: mds_catalog_instruments
+        path: '{ .catalog.instruments }'
+  rabbit:
+    headers:
+      Authorization: Basic ${BUS_BASIC}
+    metrics:
+      - name: rabbit_queue_messages
+        path: '{ .messages }'
+        help: 'Сообщений в очереди проекции кабинета'
+      - name: rabbit_queue_consumers
+        path: '{ .consumers }'
+        help: 'Потребителей на очереди'

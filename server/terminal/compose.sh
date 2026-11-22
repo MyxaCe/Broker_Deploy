@@ -22,9 +22,11 @@ SITE_ENV="$HERE/../site/.env"
 # правдой, а разъехавшийся пароль у издателя проявляется не на старте,
 # а при ближайшем переподключении.
 BUS_ENV="$HERE/../bus/.env"
+# Секрет вебхука «инструменты платформы» лежит у CMS (волна 2).
+CMS_ENV="$HERE/../cms/.env"
 OWN_ENV="$HERE/.env"
 
-for f in "$PROXY_ENV" "$SITE_ENV" "$BUS_ENV" "$OWN_ENV"; do
+for f in "$PROXY_ENV" "$SITE_ENV" "$BUS_ENV" "$CMS_ENV" "$OWN_ENV"; do
     [ -f "$f" ] || { echo "нет $f — без него подставлять нечего" >&2; exit 1; }
 done
 
@@ -38,4 +40,4 @@ case "$REV" in
 esac
 
 exec env TERMINAL_REVISION="$REV" docker compose \
-    --env-file "$PROXY_ENV" --env-file "$SITE_ENV" --env-file "$BUS_ENV" --env-file "$OWN_ENV" "$@"
+    --env-file "$PROXY_ENV" --env-file "$SITE_ENV" --env-file "$BUS_ENV" --env-file "$CMS_ENV" --env-file "$OWN_ENV" "$@"

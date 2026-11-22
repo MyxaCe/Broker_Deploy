@@ -1,0 +1,14 @@
+modules:
+  http_2xx:
+    prober: http
+    timeout: 8s
+    http: { valid_status_codes: [], preferred_ip_protocol: ip4, follow_redirects: true }
+  # Для админки правильный ответ — 403: защита по адресу источника
+  # работает. Модуль http_2xx звонил бы при ИСПРАВНОЙ границе.
+  http_403:
+    prober: http
+    timeout: 8s
+    http: { valid_status_codes: [403], preferred_ip_protocol: ip4 }
+  tcp_connect:
+    prober: tcp
+    timeout: 5s

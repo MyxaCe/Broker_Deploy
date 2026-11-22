@@ -11,6 +11,8 @@
   site/      витрина + кабинет + своя база
   cms/       CMS (legacy) + своя база + одноразовый мигратор
   terminal/  шлюз + фронт + своя база
+  mds/       сервер котировок (MDS), реестр на томе
+  monitoring/ Prometheus, Alertmanager, свидетель остатков
   bus/       RabbitMQ: обменники, DLQ, кредлы приложений
   cache/     Redis
 ```
@@ -95,7 +97,6 @@ docker compose ps        # состав, а не «вроде поднялось
 - **CMS версии 2** — у неё нет Dockerfile. Развёрнута **legacy** (репозиторий
   `Broker_CMS_Legacy`), по решению владельца от 23.10.
 
-- **MDS** — репозиторий на заблокированном аккаунте, образа не существует.
 - **Хранилища секретов, мониторинга молчания** — открытые строки реестра.
 - **Журнала доступа у прокси** — `B-OPS-018`, решение о хранении за штабом.
 
@@ -109,7 +110,10 @@ docker compose ps        # состав, а не «вроде поднялось
 | `server/site/compose.yml` | `site/compose.yml` | `server/site/README.md` |
 | `server/site/compose.sh` | `site/compose.sh` | обёртка, несколько `--env-file` |
 | `server/terminal/compose.yml` | `terminal/compose.yml` | шлюз + фронт терминала |
-| `server/terminal/compose.sh` | `terminal/compose.sh` | обёртка, четыре `--env-file` |
+| `server/terminal/compose.sh` | `terminal/compose.sh` | обёртка, пять `--env-file` (с `cms/.env`) |
+| `server/cms/compose.yml`, `compose.sh` | `cms/…` | CMS (legacy), три `--env-file` |
+| `server/mds/compose.yml`, `compose.sh` | `mds/…` | MDS + `registry-init` (владелец тома) |
+| `server/monitoring/*` | `monitoring/*` | наблюдение, свидетель остатков |
 | `server/site/.env.example` | `site/.env` (600, НЕ в git) | секреты стека |
 | `server/backup/backup.sh` | `backup/backup.sh` | `server/backup/README.md` |
 | `server/backup/restore-check.sh` | `backup/restore-check.sh` | проверка восстановлением |
