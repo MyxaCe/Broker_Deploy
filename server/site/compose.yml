@@ -56,6 +56,8 @@ services:
       NEXT_PUBLIC_WS_URL: https://${DOMAIN}
       DATABASE_URL: postgres://broker:${SITE_DB_PASSWORD}@db:5432/broker_site
       SITE_SLUG: apex-ru
+      # 2FA клиентов: ключ шифрования секретов TOTP. Генерировать на сервере, НЕ МЕНЯТЬ после включения
+      CABINET_TOTP_KEY: ${CABINET_TOTP_KEY}
       TERMINAL_INTERNAL_URL: http://broker-terminal-gateway:8080
       INTERNAL_MONEY_TOKEN: ${INTERNAL_MONEY_TOKEN}
       EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}

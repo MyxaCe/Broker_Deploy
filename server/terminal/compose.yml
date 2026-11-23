@@ -46,6 +46,8 @@ services:
       CMS_WEBHOOK_SECRET: ${PLATFORM_INSTRUMENTS_WEBHOOK_SECRET}
       PLATFORM_INSTRUMENTS_CACHE: /data/platform-instruments.json
       CLOSE_ONLY_REJECT_PENDING_ENABLED: "1"
+      # Плечо по категориям инструментов. После включения откат сборки ниже 194a210 невозможен (карантин счетов)
+      LEVERAGE_CLASSES_ENABLED: "1"
     volumes:
       - gateway-data:/data
     depends_on:
