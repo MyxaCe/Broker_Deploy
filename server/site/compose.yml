@@ -58,6 +58,8 @@ services:
       SITE_SLUG: apex-ru
       # 2FA клиентов: ключ шифрования секретов TOTP. Генерировать на сервере, НЕ МЕНЯТЬ после включения
       CABINET_TOTP_KEY: ${CABINET_TOTP_KEY}
+      # Экскурсия по платформе (кнопка «?», автозапуск у новых регистраций); "0" — выключить
+      ONBOARDING_TOUR_ENABLED: "1"
       TERMINAL_INTERNAL_URL: http://broker-terminal-gateway:8080
       INTERNAL_MONEY_TOKEN: ${INTERNAL_MONEY_TOKEN}
       EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}
