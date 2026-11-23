@@ -132,6 +132,10 @@ services:
       MONEY_BOOTSTRAP_MODE: ${MONEY_BOOTSTRAP_MODE}
       EXCHANGE_TRON_ADDRESS: ${EXCHANGE_TRON_ADDRESS}
       SITE_SLUG: apex-ru
+      # 2FA операторов: ключ шифрования секретов TOTP (ТД-013). Генерировать на сервере, НЕ МЕНЯТЬ
+      ADMIN_TOTP_KEY: ${ADMIN_TOTP_KEY}
+      # "1" — вход по незашифрованному секрету запрещён
+      ADMIN_TOTP_REQUIRE_ENCRYPTED: "1"
       CABINET_PUBLIC_URL: https://cabinet.${DOMAIN}
       PLATFORM_TRANSFER_SIGNING_KEY_PEM_B64: ${PLATFORM_TRANSFER_SIGNING_KEY_PEM_B64}
     depends_on:
