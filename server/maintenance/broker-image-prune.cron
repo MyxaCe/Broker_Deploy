@@ -1,0 +1,6 @@
+# Еженедельная очистка неиспользуемых образов Docker (старше 7 дней). Образы работающих контейнеров не трогаются.
+# Откат на старую ревизию: образ скачается из ghcr заново (теги :<sha> не удаляются). Решение владельца 23.11.
+SHELL=/bin/sh
+0 4 * * 0 root { date -u; df -h / | tail -1; docker image prune -a -f --filter "until=168h" | tail -1; df -h / | tail -1; } >> /var/log/broker-image-prune.log 2>&1
+
+# Установка на сервере: cp server/maintenance/broker-image-prune.cron /etc/cron.d/broker-image-prune && chmod 644 /etc/cron.d/broker-image-prune
