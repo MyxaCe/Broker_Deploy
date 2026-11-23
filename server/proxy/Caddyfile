@@ -10,11 +10,13 @@
 {$DOMAIN} {
 	@mds_dannye path /v1/quotes /v1/instruments
 	handle @mds_dannye {
+		encode zstd gzip
 		reverse_proxy broker-mds:3003
 	}
 
 	@mds_ikonki path_regexp ^/icons/[A-Z0-9]{1,20}\.svg$
 	handle @mds_ikonki {
+		encode zstd gzip
 		reverse_proxy broker-mds:3003
 	}
 
@@ -24,24 +26,29 @@
 	}
 
 	handle {
+		encode zstd gzip
 		reverse_proxy broker-web:3000
 	}
 }
 
 cabinet.{$DOMAIN} {
+	encode zstd gzip
 	reverse_proxy broker-cabinet:3002
 }
 
 terminal.{$DOMAIN} {
+	encode zstd gzip
 	reverse_proxy broker-terminal-web:80
 }
 
 cms.{$DOMAIN} {
+	encode zstd gzip
 	import adminonly
 	reverse_proxy broker-cms:3001
 }
 
 admin.{$DOMAIN} {
+	encode zstd gzip
 	@blocked not remote_ip <IP-оператора-1> <IP-оператора-2> <IP-оператора-3> <IP-оператора-4> <IP-оператора-5>
 	respond @blocked "Dostup ogranichen" 403
 	reverse_proxy broker-admin:3005
