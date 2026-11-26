@@ -58,3 +58,8 @@ files.{$DOMAIN} {
 	import adminonly
 	reverse_proxy broker-minio:9000
 }
+
+# www -> корень домена
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
