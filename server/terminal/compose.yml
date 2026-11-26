@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
     environment:
       FRAME_ANCESTORS: https://cabinet.${DOMAIN}
-      BRAND_URL: ''
+      BRAND_URL: https://cabinet.${DOMAIN}/api/public/brand
       CABINET_ORIGIN: https://cabinet.${DOMAIN}
     depends_on:
       - gateway
