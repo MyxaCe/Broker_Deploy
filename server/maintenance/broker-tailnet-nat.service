@@ -1,0 +1,9 @@
+[Unit]
+Description=Broker: no masquerade for Tailscale -> Docker (real client IP for admin filter)
+After=tailscaled.service docker.service
+Wants=tailscaled.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/broker-tailnet-nat.sh
+[Install]
+WantedBy=multi-user.target
